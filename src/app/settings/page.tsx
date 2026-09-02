@@ -14,12 +14,19 @@ interface ProviderStatus {
 interface EngineStatus {
   id: string;
   label: string;
-  command: string;
-  kind: "cli" | "api";
-  installed: boolean;
+  target: string;
+  kind: "cli" | "web" | "api";
+  /** 웹은 확인에 브라우저가 필요해 기본은 null(미확인)이다. */
+  ready: boolean | null;
   verified: boolean;
   notes: string;
 }
+
+const KIND_LABEL: Record<EngineStatus["kind"], string> = {
+  cli: "cli",
+  web: "웹 자동화",
+  api: "api",
+};
 
 interface Status {
   engines: EngineStatus[];
@@ -116,20 +123,23 @@ export default function SettingsPage() {
             {status.engines.map((engine, index) => {
               const active = status.engineForced
                 ? status.engineForced === engine.id
-                : engine.installed &&
-                  status.engines.findIndex((e) => e.installed) === index;
+                : engine.ready === true &&
+                  status.engines.findIndex((e) => e.ready === true) === index;
               return (
-                <tr key={engine.id}>
+                <tr key={`${engine.kind}-${engine.id}`}>
                   <td>
                     <strong>{engine.label}</strong>
+                    <span className="pill" style={{ marginLeft: 6 }}>
+                      {KIND_LABEL[engine.kind]}
+                    </span>
                     {active && (
                       <span className="pill ok" style={{ marginLeft: 6 }}>사용 중</span>
                     )}
-                    {engine.kind === "cli" && !engine.verified && (
-                      <span className="pill" style={{ marginLeft: 6 }}>플래그 미검증</span>
+                    {engine.kind !== "api" && !engine.verified && (
+                      <span className="pill" style={{ marginLeft: 6 }}>미검증</span>
                     )}
                     <br />
-                    <small className="mono">{engine.command}</small>
+                    <small className="mono">{engine.target}</small>
                     {engine.notes && (
                       <>
                         <br />
@@ -138,11 +148,16 @@ export default function SettingsPage() {
                     )}
                   </td>
                   <td style={{ width: 1, whiteSpace: "nowrap" }}>
-                    <span className={engine.installed ? "pill ok" : "pill off"}>
-                      {engine.installed
-                        ? engine.kind === "cli" ? "설치됨" : "키 있음"
-                        : engine.kind === "cli" ? "없음" : "키 없음"}
-                    </span>
+                    {engine.ready === null ? (
+                      <span className="pill off">미확인</span>
+                    ) : (
+                      <span className={engine.ready ? "pill ok" : "pill off"}>
+                        {engine.ready ? "준비됨" : "안 됨"}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ width: 1 }}>
+                    {engine.kind === "web" && <WebProviderActions id={engine.id} />}
                   </td>
                 </tr>
               );
@@ -151,15 +166,10 @@ export default function SettingsPage() {
         </table>
         <small>
           <code>PLANNER_AGENT</code>에 id를 넣으면 고정됩니다 (예: <code>claude</code>,{" "}
-          <code>codex</code>, 종량제는 <code>api</code>)
+          <code>chatgpt</code>, 종량제는 <code>api</code>)
           {status.engineForced && ` — 지금: ${status.engineForced}`}.
+          {" 웹 자동화는 확인에 브라우저를 띄워야 해서 상태를 미리 조회하지 않습니다."}
         </small>
-        {!status.engines.some((e) => e.installed) && (
-          <div className="notice error">
-            기획을 만들 방법이 없습니다. 구독 CLI 중 하나를 설치해 로그인하거나,{" "}
-            <code>ANTHROPIC_API_KEY</code>를 넣으세요.
-          </div>
-        )}
       </div>
 
       <AgentEditor />
@@ -217,6 +227,60 @@ export default function SettingsPage() {
 
       {error && <div className="notice error">{error}</div>}
     </>
+  );
+}
+
+/**
+ * 웹 프로바이더 조작 버튼.
+ *
+ * 로그인은 이때만 창이 뜬다. 나머지(확인·시험)는 전부 백그라운드다.
+ */
+function WebProviderActions({ id }: { id: string }) {
+  const [busy, setBusy] = useState("");
+  const [result, setResult] = useState("");
+
+  async function act(action: string, label: string) {
+    setBusy(label);
+    setResult("");
+    try {
+      const data = await api<Record<string, unknown>>(`/api/web-providers/${id}`, {
+        json: { action },
+      });
+      if (action === "login") {
+        setResult(data.loggedIn ? "로그인됨" : "로그인 확인 실패");
+      } else if (action === "check") {
+        setResult(data.loggedIn ? "세션 살아 있음" : "세션 없음");
+      } else if (action === "cookies") {
+        setResult(`쿠키 ${String(data.count)}개`);
+      } else {
+        setResult(String(data.answer ?? "").slice(0, 80) || "빈 응답");
+      }
+    } catch (err) {
+      setResult(err instanceof Error ? err.message.slice(0, 160) : String(err));
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div>
+      <div className="row" style={{ flexWrap: "nowrap" }}>
+        <button className="sm" disabled={Boolean(busy)} onClick={() => act("login", "로그인")}>
+          로그인
+        </button>
+        <button className="sm" disabled={Boolean(busy)} onClick={() => act("check", "확인")}>
+          확인
+        </button>
+        <button className="sm" disabled={Boolean(busy)} onClick={() => act("ask", "시험")}>
+          시험
+        </button>
+        <button className="sm" disabled={Boolean(busy)} onClick={() => act("cookies", "쿠키")}>
+          쿠키
+        </button>
+      </div>
+      {busy && <small><span className="spinner" />{busy} 중…</small>}
+      {result && <small style={{ display: "block", maxWidth: 260 }}>{result}</small>}
+    </div>
   );
 }
 

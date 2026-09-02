@@ -1,6 +1,6 @@
 import type { Plan, Preset } from "@/lib/types";
 
-export type EngineId = "api" | "cli";
+export type EngineId = "api" | "cli" | "web";
 
 export interface PlanRequest {
   preset: Preset;

@@ -3,6 +3,7 @@ import os from "node:os";
 import { z } from "zod";
 import { planSchema, type Plan } from "@/lib/types";
 import { planUserPrompt, systemPrompt } from "./prompt";
+import { extractJson } from "./json";
 import type { AgentConfig } from "./agents";
 import type { PlannerEngine } from "./types";
 
@@ -107,29 +108,6 @@ function pluck(value: unknown, dotPath: string): unknown {
           : undefined,
       value,
     );
-}
-
-/** 스키마를 줘도 모델이 산문이나 코드펜스로 감싸는 경우가 있어 JSON만 건져낸다. */
-function extractJson(text: string): unknown {
-  const trimmed = text.trim();
-
-  const fenced = /```(?:json)?\s*\n([\s\S]*?)\n```/i.exec(trimmed);
-  const candidates = [
-    fenced?.[1],
-    trimmed,
-    // 앞뒤에 말이 붙은 경우 가장 바깥 중괄호 구간만 떼어본다.
-    trimmed.slice(trimmed.indexOf("{"), trimmed.lastIndexOf("}") + 1),
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    try {
-      return JSON.parse(candidate);
-    } catch {
-      // 다음 후보로.
-    }
-  }
-  throw new Error(`응답에서 JSON을 찾지 못했습니다. 앞부분: ${trimmed.slice(0, 300)}`);
 }
 
 /** 스키마 플래그가 없는 CLI에는 스키마를 말로 시킨다. */
