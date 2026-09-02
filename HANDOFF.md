@@ -11,7 +11,12 @@
 ## 무엇을 만드는 중인가
 
 레퍼런스 사이트(`tube.autoworkers.ai`)의 동작을 참고해, **주제 한 줄에서
-캡컷 프로젝트까지** 끌고 가는 개인용 로컬 웹앱을 만든다.
+캡컷 프로젝트까지** 끌고 가는 개인용 도구를 만든다.
+
+알맹이는 Next.js 서버지만 **사용자가 만나는 것은 설치해서 쓰는 Windows 프로그램이다.**
+Electron 창이 그 서버를 안에서 띄우고 화면을 보여준다. 검은 창도 브라우저 주소창도
+없고, Node.js 설치나 `npm install`도 필요 없다. 사용자가 `유튜브 자동화` 프로젝트의
+YT Studio Console처럼 "실제 프로그램"이기를 원했기 때문이다.
 
 ```
 1 대본 ─ 2 구조 ─ 3 음성 ─ 4 스토리보드 ─ 5 이미지 ─ 6 영상화 ─ 7 자막·효과 ─ 8 캡컷
@@ -104,11 +109,25 @@ SRT·캡컷 드래프트·화면이 **전부 이 함수 결과를 쓴다.** 두 
 | 웹 드라이버 (파일) | ✅ element 방식 PNG, download 방식 WAV |
 | 내보내기 번들 | ✅ |
 | 런처 스크립트 | ✅ 깨끗한 상태에서 끝까지 |
+| 데스크톱 포장 (.exe) | ✅ 아래 참고 |
 | **웹 레시피 선택자** | ❌ **미검증** |
 | **캡컷에서 실제로 열리는지** | ❌ **미검증** |
 | API 경로 전부 | ❌ 미검증 (안 써도 됨) |
 
 **미검증 항목을 검증된 것처럼 말하면 안 된다.** 아래에 이유를 적는다.
+
+### 데스크톱 포장은 어디까지 확인했나
+
+`AutoTube Studio Setup 0.1.0.exe`(89MB)가 구워지고, `dist/win-unpacked`의 실행 파일로
+**창이 실제로 떴다.** 창 안에서 확인한 것:
+
+- 창 제목·한국어 메뉴(파일·보기), 첫 화면(새 영상 폼·프리셋 드롭다운·빈 프로젝트 목록)
+- 서버가 127.0.0.1의 빈 포트에서 응답, `/api/providers`가 `claude` CLI를 `ready: true`로 보고
+- `_next/static`의 CSS·JS 200
+- 실행 파일 옆 `app-data/`에 `agents.json`·`presets.json`·`web-providers.json` 자동 생성
+
+**확인 안 한 것**: NSIS 설치본을 실제로 설치해 바탕화면 아이콘으로 켜보지는 않았다
+(win-unpacked 실행 파일로만 확인했다). 다른 PC에서 켜보지도 않았다.
 
 ### 왜 웹 선택자가 미검증인가
 
@@ -120,8 +139,10 @@ SRT·캡컷 드래프트·화면이 **전부 이 함수 결과를 쓴다.** 두 
 잠시 뒤 진짜 src가 붙는 동작, 스트리밍 응답, 다운로드 버튼까지 흉내 냈다.
 즉 기계는 돌고 선택자만 맞추면 된다.
 
-**Orca 환경에서는 그 사이트들에 접속할 수 있을 가능성이 높다.** 그렇다면
-가장 먼저 할 일은 선택자 검증이다(아래 참고).
+**Orca 환경(이 PC)에서는 그 전제가 깨졌다.** 확인해보니 `gemini.google.com`과
+`elevenlabs.io`는 200, `chatgpt.com`과 `claude.ai`는 403이 온다 — 403은 curl을 봇으로
+막은 것이지 도달 자체는 된다는 뜻이다. 로그인된 실제 브라우저로는 열릴 가능성이 높다.
+다만 **이건 네트워크 도달 확인일 뿐 선택자 검증이 아니다.** 선택자는 여전히 추정치다.
 
 ### 왜 캡컷 드래프트가 미검증인가
 
@@ -165,6 +186,17 @@ SRT·캡컷 드래프트·화면이 **전부 이 함수 결과를 쓴다.** 두 
   않으려고 WAV 헤더와 MP3 프레임을 파싱한다. 못 읽으면 글자수 추정치로 넘어간다.
 - **라인을 고치면 그 줄의 음성이 지워진다.** 의도된 동작이다(글이 바뀌면 음성이
   안 맞으므로). 장면 길이도 다시 계산된다.
+- **포장에서 `!node_modules` 패턴을 쓰면 안 된다.** electron-builder는 `node_modules`라는
+  이름의 디렉터리를 특별 취급해서, 어떤 패턴을 쓰든 `files`로 넣은 트리 안의 것까지 빼버린다.
+  그래서 서버 트리는 `files`가 아니라 `extraResources`로 통째로 복사한다. 이걸 되돌리면
+  `.next/standalone/node_modules`가 사라지고 **창이 아무 말 없이 안 뜬다.** 두 번 겪었다.
+- **`package.json`에 `dependencies`를 되살리면 안 된다.** electron-builder가 그걸 보고 루트
+  node_modules를 통째로 패키지에 복사한다. 포장된 앱이 실행 시점에 필요로 하는 것은
+  electron뿐이고, 서버가 쓰는 모듈은 `next build`가 이미 standalone에 추려 넣었다.
+- **`outputFileTracingExcludes`를 지우면 안 된다.** Next가 `electron` 패키지(브라우저
+  바이너리 포함)까지 서버 번들로 끌고 들어와 32MB짜리가 305MB가 된다.
+- **`npm run prepare:standalone`을 빼먹으면** 앱은 뜨는데 스타일과 스크립트가 전부 404다.
+  Next는 standalone에 `.next/static`을 넣지 않는다(CDN에 올릴 것을 전제한다).
 - **약관** — 로그인된 웹 UI 자동 조작은 대부분 서비스 약관의 금지 항목이다.
   사용자는 이 점을 알고 진행하기로 했다. 다시 설득하려 들 필요는 없지만,
   기능을 넓힐 때 이 사실이 바뀌지는 않는다.
@@ -173,9 +205,12 @@ SRT·캡컷 드래프트·화면이 **전부 이 함수 결과를 쓴다.** 두 
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000
+npm run dev          # http://localhost:3000 — 고치는 중에는 이게 제일 빠르다
 npm run typecheck
-npm run build
+npm run app          # 빌드해서 실제 창으로 띄운다
+npm run pack         # dist/win-unpacked/AutoTube Studio.exe (설치 없이 실행)
+npm run dist         # dist/AutoTube Studio Setup 0.1.0.exe (배포용 설치본)
 ```
 
-또는 `시작하기-Windows.bat` / `시작하기-Mac.command` 더블클릭.
+`시작하기-Windows.bat` / `시작하기-Mac.command`는 설치본이 생기기 전의 실행 방법이다.
+Node.js가 깔린 개발 환경에서만 의미가 있다.

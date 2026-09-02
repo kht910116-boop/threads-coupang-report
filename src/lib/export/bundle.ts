@@ -171,7 +171,9 @@ export async function exportProject(project: Project): Promise<ExportResult> {
     ["README.txt", readmeText(folderName, project)],
   ];
   for (const [name, body] of plain) {
-    await fs.writeFile(path.join(root, name), body, "utf8");
+    // root는 data/exports 아래의 런타임 경로다. 번들러가 이걸 모듈 경로로 오해하면
+    // 프로젝트 전체를 추적해 standalone 출력에 소스를 통째로 넣는다. 그래서 추적에서 뺀다.
+    await fs.writeFile(path.join(/*turbopackIgnore: true*/ root, name), body, "utf8");
     files.push(name);
   }
 

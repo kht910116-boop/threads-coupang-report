@@ -4,8 +4,13 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# 포장 산출물: 설치본과 win-unpacked
+dist/
+
 # 로컬 데이터: 프로젝트·프리셋·생성된 이미지/오디오/영상
+# data/는 개발 중일 때, app-data/는 포장된 앱이 쓰는 자리다.
 data/
+app-data/
 
 # 비밀키
 .env

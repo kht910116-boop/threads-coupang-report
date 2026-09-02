@@ -23,37 +23,42 @@
 
 ## 시작하기
 
-**받은 폴더에서 파일 하나를 더블클릭하면 됩니다.**
+**`AutoTube Studio Setup 0.1.0.exe`로 설치하고, 바탕화면 아이콘을 누르면 됩니다.**
 
-| 운영체제 | 실행할 파일 |
-|---|---|
-| Windows | `시작하기-Windows.bat` |
-| macOS | `시작하기-Mac.command` |
+검은 창도 브라우저 주소창도 없습니다. 창 하나가 뜨고 그게 전부입니다.
+Node.js 설치도, `npm install`도 필요 없습니다 — 프로그램 안에 다 들어 있습니다.
 
-Node.js 확인 → 필요한 파일 설치 → 서버 시작 → 브라우저 열기까지 한 번에 합니다.
-처음 한 번만 1~3분 걸리고, 그다음부터는 몇 초입니다.
-**뜬 검은 창은 닫지 마세요.** 그게 서버입니다. 끄려면 그 창에서 Ctrl+C(맥은 Control+C).
+설치할 때 위치를 고를 수 있습니다. **Program Files 밖**(예: `D:\AutoTube Studio`)에
+넣으면 작업물이 프로그램 폴더 옆 `app-data`에 쌓여 탐색기로 찾기 쉽습니다.
+Program Files에 넣으면 거기는 쓰기 권한이 없어 `%APPDATA%\AutoTube Studio\app-data`로
+갑니다. 어느 쪽이든 **파일 → 데이터 폴더 열기** 메뉴가 그 자리를 열어줍니다.
 
-macOS에서 "실행할 수 없음"이 뜨면 터미널에서 한 번만:
-
-```bash
-chmod +x "시작하기-Mac.command"
-```
-
-### 직접 명령어로 켜기
-
-```bash
-npm install
-npm run dev        # → http://localhost:3000
-```
+Windows가 "알 수 없는 게시자"라고 경고하면 **추가 정보 → 실행**을 누릅니다.
+코드 서명서를 사지 않아서 그렇습니다.
 
 ### 준비물
 
 | | 없으면 |
 |---|---|
-| **Node.js 20 이상** | 앱이 안 뜬다. 런처가 받는 곳을 열어준다 |
 | **Claude Code** (`claude` → `/login`) | 앱은 뜨지만 대본 생성이 안 된다 |
 | **Chrome** | 앱은 뜨지만 구독 웹 자동화가 안 된다 |
+
+Node.js는 이제 쓰는 쪽 준비물이 아닙니다. 아래 개발용으로만 필요합니다.
+
+### 고칠 때 (개발)
+
+```bash
+npm install
+npm run dev     # 브라우저로 http://localhost:3000 — 고치는 중에는 이게 제일 빠르다
+npm run app     # 빌드해서 실제 창으로 띄워본다
+npm run pack    # dist/win-unpacked/AutoTube Studio.exe (설치 없이 바로 실행)
+npm run dist    # dist/AutoTube Studio Setup 0.1.0.exe (배포용 설치본)
+npm run typecheck
+```
+
+저장소에 남아 있는 `시작하기-Windows.bat` / `시작하기-Mac.command`는 설치본이 생기기
+전의 실행 방법입니다. `npm install` 후 `next dev`를 띄우고 브라우저를 열어줍니다.
+Node.js가 깔린 개발 환경에서만 의미가 있습니다.
 
 ## 8단계
 
@@ -216,8 +221,16 @@ src/lib/
     capcut.ts             드래프트 생성
     bundle.ts             드래프트 + 범용 산출물
 src/app/                UI + API 라우트
-data/                   프로젝트·프리셋·레시피·에셋 (gitignore)
+electron/
+  main.js               데스크톱 껍데기. 서버를 띄우고 창이 그걸 본다
+scripts/
+  prepare-standalone.mjs  standalone에 정적 파일을 채운다 (빠뜨리면 스타일이 전부 404)
+electron-builder.yml    포장 설정. 왜 그 값인지가 주석에 있다
+data/ · app-data/       프로젝트·프리셋·레시피·에셋 (gitignore)
 ```
+
+개발 중에는 `data/`, 포장된 앱에서는 실행 파일 옆 `app-data/`(또는 쓰기가 막히면
+`%APPDATA%` 아래)를 쓴다. 코드는 `AUTOTUBE_DATA_DIR` 하나만 보므로 둘의 차이를 모른다.
 
 ## 검증 상태
 
@@ -230,6 +243,7 @@ data/                   프로젝트·프리셋·레시피·에셋 (gitignore)
 | 웹 드라이버 (챗) | 통과 — textarea·contenteditable, 스트리밍 완료 감지 |
 | 웹 드라이버 (파일) | 통과 — element 방식 PNG, download 방식 WAV |
 | 내보내기 번들 | 통과 |
+| 데스크톱 포장 (.exe) | 통과 — 설치본이 구워지고, 창이 뜨고, 서버·API·정적 파일 응답 확인 |
 | **웹 레시피 선택자** | **미검증** — 해당 사이트 접속이 막힌 환경이라 확인 불가 |
 | **캡컷에서 실제로 열리는지** | **미검증** |
 | API 경로 (Anthropic·Gemini·OpenAI·Veo) | **미검증** — 키 없음. 안 써도 된다 |
