@@ -1,4 +1,5 @@
 import { handle } from "@/lib/http";
+import { engineStatus } from "@/lib/engine";
 import { getTtsProvider, ttsStatus } from "@/lib/providers/tts";
 import { imageStatus } from "@/lib/providers/image";
 import { videoStatus } from "@/lib/providers/video";
@@ -34,7 +35,8 @@ export async function GET(request: Request) {
     }
 
     return {
-      anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+      engines: await engineStatus(),
+      engineForced: process.env.PLANNER_ENGINE ?? null,
       tts: ttsStatus(),
       image: imageStatus(),
       video: videoStatus(),

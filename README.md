@@ -32,28 +32,48 @@
 
 ```bash
 npm install
-cp .env.example .env.local   # 키 채우기
+cp .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
 
-**필수는 `ANTHROPIC_API_KEY` 하나뿐이다.** 나머지는 쓰는 것만 채우면 된다.
-비워두면 그 단계는 '직접 넣기' 모드가 되어, 프롬프트만 뽑아주고 결과물은 직접 올리면 된다.
+### 기획 엔진: 구독제 vs 종량제
 
-## 붙는 서비스
+**구독제(Claude Pro/Max)를 쓴다면 API 키가 필요 없다.**
 
-| 단계 | 서비스 | 환경변수 |
-|---|---|---|
-| 기획·대본 | Claude (Opus 5) | `ANTHROPIC_API_KEY` |
-| 음성 | ElevenLabs | `ELEVENLABS_API_KEY` |
-| 음성 | 타입캐스트 | `TYPECAST_API_KEY`, `TYPECAST_API_BASE` |
-| 음성 | Google AI Studio (Gemini TTS) | `GOOGLE_AI_STUDIO_API_KEY` |
-| 음성 | Google Cloud TTS | `GOOGLE_CLOUD_TTS_API_KEY` |
-| 이미지 | Gemini 이미지 | `GEMINI_IMAGE_API_KEY` |
-| 이미지 | OpenAI | `OPENAI_API_KEY` |
-| 영상 | Google Veo | `GEMINI_VIDEO_API_KEY` |
+Claude 구독은 API 키를 주지 않는다. 하지만 Claude Code는 구독 로그인으로 동작하고
+헤드리스 모드(`-p`)와 구조화 출력(`--json-schema`)을 지원한다. 그래서 이 앱은
+API 대신 로컬 `claude` 바이너리를 불러 같은 결과를 받는다.
 
-**연결 상태** 화면에서 어떤 키가 꽂혔는지 보이고, ElevenLabs·Google Cloud는 목소리 목록을
-바로 불러와 voice id를 복사할 수 있다.
+```bash
+claude          # 실행 후 /login 으로 구독 계정 로그인 (한 번만)
+```
+
+이러면 `.env.local`을 비워둬도 기획이 돌아간다. 종량제 API 키를 넣으면 그쪽을 쓴다.
+`PLANNER_ENGINE=cli|api`로 못박을 수 있고, 비워두면 자동으로 고른다.
+
+**주의**: 구독에는 5시간·주간 사용량 한도가 있다. 한 편 기획에 2~3분, 롱폼은 더 걸리므로
+하루에 수십 편을 몰아 돌리면 한도에 닿을 수 있다.
+
+### 붙는 서비스
+
+| 단계 | 서비스 | 구독제로 되나 | 환경변수 |
+|---|---|---|---|
+| 기획·대본 | Claude Code CLI | ✅ Pro/Max 구독으로 동작 | (없음, `/login`) |
+| 기획·대본 | Anthropic API | ❌ 종량제 별도 | `ANTHROPIC_API_KEY` |
+| 음성 | ElevenLabs | 플랜에 API 쿼터 포함 (본인 플랜 확인 필요) | `ELEVENLABS_API_KEY` |
+| 음성 | 타입캐스트 | 플랜별로 다름 (확인 필요) | `TYPECAST_API_KEY` |
+| 음성 | Google AI Studio (Gemini TTS) | AI Studio에서 무료 키 발급 | `GOOGLE_AI_STUDIO_API_KEY` |
+| 음성 | Google Cloud TTS | 클라우드 종량제 | `GOOGLE_CLOUD_TTS_API_KEY` |
+| 이미지 | Gemini 이미지 | AI Studio 키 | `GEMINI_IMAGE_API_KEY` |
+| 이미지 | OpenAI | ❌ ChatGPT Plus는 API 미포함 | `OPENAI_API_KEY` |
+| 영상 | Google Veo | 종량제 | `GEMINI_VIDEO_API_KEY` |
+
+**구독만 쓰고 API를 안 붙일 거면** 이미지·영상은 '직접 넣기' 모드로 두면 된다.
+앱이 컷별 프롬프트를 뽑아주니, 구독 중인 웹 서비스에 붙여넣고 나온 결과물을 컷에 업로드하면
+나머지(타임라인·자막·캡컷 내보내기)는 그대로 돌아간다. 이게 기본 동작이다.
+
+**연결 상태** 화면에서 어떤 엔진·키가 준비됐는지 보이고, ElevenLabs·Google Cloud는
+목소리 목록을 바로 불러와 voice id를 복사할 수 있다.
 
 ## 작업 흐름
 
@@ -109,7 +129,11 @@ data/exports/<프로젝트>/<제목>/
 ```
 src/lib/
   types.ts              전체 데이터 계약 (프리셋·기획·프로젝트)
-  claude.ts             기획 엔진 — 주제+프리셋 → 컷 단위 기획서
+  engine/               기획 엔진 — 주제+프리셋 → 컷 단위 기획서
+    prompt.ts             두 경로가 공유하는 프롬프트
+    cli.ts                Claude Code CLI 경유 (구독제)
+    api.ts                Anthropic SDK 경유 (종량제)
+    index.ts              둘 중 하나 자동 선택
   store.ts              파일 기반 저장소
   providers/tts/        TTS 어댑터 4종 + 등록소
   providers/image.ts    이미지 어댑터
@@ -124,8 +148,10 @@ data/                   프로젝트·프리셋·에셋 (gitignore)
 
 | 부분 | 상태 |
 |---|---|
+| 구독제 경로 (Claude Code CLI) 실제 기획 생성 | 통과 — 18컷 / 44.5초, 프리셋 제약 전부 준수 |
 | 기획 → 컷 → 내보내기 전 경로 | 통과 (에셋이 빠진 컷이 있어도 타임라인과 SRT 시각이 일치) |
 | 프리셋 CRUD, 파일 업로드, 에셋 서빙 | 통과 |
+| 종량제 경로 (Anthropic API) | **미검증** — API 키가 없어 확인 못 함 |
 | 캡컷 드래프트가 실제 캡컷에서 열리는지 | **미검증** — 위 경고 참고 |
 | ElevenLabs / 타입캐스트 / Gemini TTS / Google Cloud TTS 실제 호출 | **미검증** — 각 서비스 키가 있어야 확인 가능 |
 | 이미지·영상 생성 실제 호출 | **미검증** — 같은 이유 |

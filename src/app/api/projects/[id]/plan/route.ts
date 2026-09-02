@@ -1,5 +1,5 @@
 import { handle } from "@/lib/http";
-import { generatePlan } from "@/lib/claude";
+import { selectEngine } from "@/lib/engine";
 import { getProject, saveProject } from "@/lib/store";
 import { uuid } from "@/lib/id";
 import type { Cut } from "@/lib/types";
@@ -17,7 +17,8 @@ export async function POST(_request: Request, { params }: Params) {
     const project = await getProject(id);
     if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
 
-    const plan = await generatePlan({
+    const engine = await selectEngine();
+    const plan = await engine.generatePlan({
       preset: project.preset,
       topic: project.topic,
       brief: project.brief,

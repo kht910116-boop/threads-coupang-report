@@ -11,8 +11,16 @@ interface ProviderStatus {
   canListVoices?: boolean;
 }
 
+interface EngineStatus {
+  id: string;
+  label: string;
+  available: boolean;
+  reason: string;
+}
+
 interface Status {
-  anthropic: boolean;
+  engines: EngineStatus[];
+  engineForced: string | null;
   tts: ProviderStatus[];
   image: ProviderStatus[];
   video: ProviderStatus[];
@@ -95,14 +103,48 @@ export default function SettingsPage() {
     <>
       <h2>기획 엔진</h2>
       <div className="card">
-        <span className={status.anthropic ? "pill ok" : "pill off"}>
-          {status.anthropic ? "연결됨" : "키 없음"}
-        </span>{" "}
-        Claude — <code className="mono">ANTHROPIC_API_KEY</code>
-        {!status.anthropic && (
+        <p className="dim" style={{ marginTop: 0 }}>
+          둘 중 하나만 있으면 됩니다. 구독제(Claude Pro/Max)는 API 키를 주지 않으므로
+          Claude Code CLI를 경유합니다.
+        </p>
+        <table>
+          <tbody>
+            {status.engines.map((engine) => {
+              const active =
+                status.engineForced === engine.id ||
+                (!status.engineForced &&
+                  engine.available &&
+                  // 지정이 없으면 API가 우선, 없으면 CLI.
+                  (engine.id === "api" ||
+                    !status.engines.find((e) => e.id === "api")?.available));
+              return (
+                <tr key={engine.id}>
+                  <td>
+                    <strong>{engine.label}</strong>
+                    {active && engine.available && (
+                      <span className="pill ok" style={{ marginLeft: 6 }}>사용 중</span>
+                    )}
+                    {!engine.available && <br />}
+                    {!engine.available && <small>{engine.reason}</small>}
+                  </td>
+                  <td style={{ width: 1, whiteSpace: "nowrap" }}>
+                    <span className={engine.available ? "pill ok" : "pill off"}>
+                      {engine.available ? "준비됨" : "사용 불가"}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <small>
+          <code>PLANNER_ENGINE</code>을 <code>cli</code> 또는 <code>api</code>로 두면
+          고정됩니다{status.engineForced && ` (지금: ${status.engineForced})`}.
+        </small>
+        {!status.engines.some((e) => e.available) && (
           <div className="notice error">
-            이 키가 없으면 기획을 만들 수 없습니다. <code>.env.local</code>에 넣고 서버를
-            다시 시작하세요.
+            기획을 만들 방법이 없습니다. Claude Code CLI를 설치해 <code>claude</code>로
+            로그인하거나, <code>ANTHROPIC_API_KEY</code>를 넣으세요.
           </div>
         )}
       </div>
