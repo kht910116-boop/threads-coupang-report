@@ -122,6 +122,91 @@ function UploadButton({
   );
 }
 
+/**
+ * 이름 붙인 선택지 + 고른 결과를 말로 설명하는 힌트.
+ *
+ * 숫자를 그대로 받지 않으려고 만들었다. 사용자는 '줄 사이 200ms'가 어느 정도인지
+ * 모르지만 '보통 — 숨 쉴 틈은 있고 늘어지지 않습니다'는 안다. 오른쪽 힌트가
+ * 고를 때마다 바뀌어서, 누르기 전에 결과를 읽을 수 있다.
+ */
+function Seg<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ id: T; label: string; hint: string }>;
+  onChange: (id: T) => void;
+}) {
+  const hint = options.find((o) => o.id === value)?.hint ?? "";
+  return (
+    <div className="seg-field">
+      <div className="seg-label">
+        <span>{label}</span>
+        <span className="seg-hint">{hint}</span>
+      </div>
+      <div className="seg">
+        {options.map((o) => (
+          <button key={o.id} className={o.id === value ? "on" : ""} onClick={() => onChange(o.id)}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 되돌릴 수 없는 일 앞에서 한 번 막는다.
+ *
+ * 무엇을 잃는지 먼저 보여주고 나서 묻는다. '정말요?'만 띄우면 사용자는
+ * 무엇이 사라지는지 모른 채 확인을 누른다.
+ */
+function Confirm({
+  title,
+  warn,
+  cost,
+  basis,
+  confirmLabel = "진행",
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  warn?: string;
+  cost?: string;
+  basis?: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="modal-back" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>{title}</h3>
+        {warn && <div className="warn">{warn}</div>}
+        {cost && <div className="cost">{cost}</div>}
+        {basis && <div className="basis">{basis}</div>}
+        <div className="acts">
+          <button onClick={onCancel}>취소</button>
+          <button className="primary" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 아직 아무것도 없을 때. 무엇이 여기 나타나는지를 미리 말해준다. */
+function Empty({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div className="empty">
+      <strong>{title}</strong>
+      <span>{desc}</span>
+    </div>
+  );
+}
+
 // ─── 1. 대본 ────────────────────────────────────────────────
 
 export function StepScript({ project, setProject, run, busy }: PanelProps) {
@@ -307,10 +392,48 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
 
 // ─── 3. 음성 ────────────────────────────────────────────────
 
+/**
+ * 쉼 프리셋.
+ *
+ * 무음은 값이 넷(앞·뒤·줄사이·파트사이)이라 따로 받으면 네 번 고민해야 하고,
+ * 넷이 서로 안 맞으면 결과가 이상해진다. 함께 움직이는 값이므로 한 덩어리로 묶고,
+ * 그래도 직접 만지고 싶은 사람을 위해 '직접'을 남겨둔다.
+ */
+const PACE_PRESETS = {
+  tight: { leadSilenceMs: 200, tailSilenceMs: 300, gapMs: 80, sectionGapMs: 250 },
+  normal: { leadSilenceMs: 400, tailSilenceMs: 600, gapMs: 200, sectionGapMs: 500 },
+  loose: { leadSilenceMs: 600, tailSilenceMs: 900, gapMs: 380, sectionGapMs: 900 },
+} as const;
+
+type Pace = keyof typeof PACE_PRESETS | "custom";
+
+const PACE_OPTIONS = [
+  { id: "tight", label: "촘촘", hint: "줄이 바짝 붙습니다. 정보가 빽빽한 영상에" },
+  { id: "normal", label: "보통", hint: "권장 — 숨 쉴 틈은 있고 늘어지지 않습니다" },
+  { id: "loose", label: "여유", hint: "문장 사이가 넉넉합니다. 차분한 해설에" },
+  { id: "custom", label: "직접", hint: "네 값을 직접 넣습니다" },
+] as const satisfies ReadonlyArray<{ id: Pace; label: string; hint: string }>;
+
+/** 지금 값이 어느 프리셋인지 되짚는다. 어느 것도 아니면 '직접'이다. */
+function paceOf(tts: Project["tts"]): Pace {
+  const match = (Object.keys(PACE_PRESETS) as Array<keyof typeof PACE_PRESETS>).find((key) =>
+    (Object.entries(PACE_PRESETS[key]) as Array<[keyof typeof PACE_PRESETS.normal, number]>).every(
+      ([field, value]) => tts[field] === value,
+    ),
+  );
+  return match ?? "custom";
+}
+
 export function StepTts({ project, setProject, run, busy }: PanelProps) {
   const [tts, setTts] = useState(project.tts);
+  const [redoAsk, setRedoAsk] = useState(false);
+  // 값만 보고 프리셋을 되짚으면 '직접'을 누른 순간이 표현되지 않는다 —
+  // 값이 아직 프리셋과 같으니 계속 그 프리셋으로 읽혀서 숫자 칸이 안 열린다.
+  // 그래서 '직접을 골랐다'는 사실만 따로 들고 있는다.
+  const [manual, setManual] = useState(() => paceOf(project.tts) === "custom");
   const choices = useChoices();
   const withAudio = project.lines.filter((l) => l.audio).length;
+  const pace: Pace = manual ? "custom" : paceOf(tts);
 
   const saveSettings = () =>
     run("저장 중…", async () => {
@@ -365,34 +488,60 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
           </div>
         </div>
 
-        <label>무음 (ms)</label>
-        <div className="grid two">
-          {(
-            [
-              ["leadSilenceMs", "영상 앞"],
-              ["tailSilenceMs", "영상 뒤"],
-              ["gapMs", "줄 사이"],
-              ["sectionGapMs", "파트 사이"],
-            ] as const
-          ).map(([key, label]) => (
-            <div className="field" key={key}>
-              <label>{label}</label>
-              <input
-                type="number" value={tts[key]}
-                onChange={(e) => setTts({ ...tts, [key]: Number(e.target.value) })}
-              />
-            </div>
-          ))}
-        </div>
+        <Seg
+          label="쉼"
+          value={pace}
+          options={PACE_OPTIONS}
+          onChange={(id) => {
+            setManual(id === "custom");
+            if (id !== "custom") setTts({ ...tts, ...PACE_PRESETS[id] });
+          }}
+        />
+
+        {/* '직접'을 골랐을 때만 숫자를 연다. 평소에는 네 칸이 화면을 차지할 이유가 없다. */}
+        {pace === "custom" && (
+          <div className="grid two">
+            {(
+              [
+                ["leadSilenceMs", "영상 앞"],
+                ["tailSilenceMs", "영상 뒤"],
+                ["gapMs", "줄 사이"],
+                ["sectionGapMs", "파트 사이"],
+              ] as const
+            ).map(([key, label]) => (
+              <div className="field" key={key}>
+                <label>{label} (ms)</label>
+                <input
+                  type="number" value={tts[key]}
+                  onChange={(e) => setTts({ ...tts, [key]: Number(e.target.value) })}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="row">
           <button className="primary" onClick={() => generate(false)} disabled={Boolean(busy)}>
             음성 만들기 ({withAudio}/{project.lines.length})
           </button>
-          <button onClick={() => generate(true)} disabled={Boolean(busy)}>전부 다시</button>
+          <button onClick={() => setRedoAsk(true)} disabled={Boolean(busy)}>전부 다시</button>
           <button onClick={saveSettings} disabled={Boolean(busy)}>설정만 저장</button>
         </div>
       </div>
+
+      {redoAsk && (
+        <Confirm
+          title="음성을 전부 다시 만들까요?"
+          warn={`이미 만들어 둔 음성 ${withAudio}개가 지워지고 처음부터 다시 만듭니다. 되돌릴 수 없습니다.`}
+          basis={`자막 ${project.lines.length}줄 · 구독 사용량을 씁니다`}
+          confirmLabel="전부 다시"
+          onCancel={() => setRedoAsk(false)}
+          onConfirm={() => {
+            setRedoAsk(false);
+            void generate(true);
+          }}
+        />
+      )}
 
       <div className="card">
         {[...project.lines]

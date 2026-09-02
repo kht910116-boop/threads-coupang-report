@@ -1,8 +1,8 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { Fragment, use, useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
-import { STEPS, STEP_LABEL, type Project, type Step } from "@/lib/types";
+import { STEPS, STEP_DESC, STEP_LABEL, type Project, type Step } from "@/lib/types";
 import {
   StepExport,
   StepScript,
@@ -70,44 +70,99 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     export: <StepExport {...panelProps} />,
   }[step];
 
+  const at = STEPS.indexOf(step);
+
   return (
     <>
-      <div className="card spread" style={{ marginBottom: 12 }}>
-        <div>
-          <h3 style={{ margin: 0, fontSize: 16 }}>{project.title || project.topic}</h3>
-          <small>
-            {project.preset.name} · {project.preset.aspect} · 목표{" "}
-            {project.preset.targetDurationSec}초
-          </small>
-        </div>
+      <div className="crumb">
+        <span className="chip">{project.preset.name}</span>
+        <span>›</span>
+        <strong>{project.title || project.topic}</strong>
+        <span>
+          · {project.preset.aspect} · 목표 {project.preset.targetDurationSec}초
+        </span>
       </div>
 
-      <nav className="steps">
-        {STEPS.map((s) => (
-          <button
-            key={s}
-            className={`step ${step === s ? "active" : ""} ${project.done.includes(s) ? "done" : ""}`}
-            onClick={() => setStep(s)}
-          >
-            {STEP_LABEL[s]}
-          </button>
-        ))}
-      </nav>
+      <StepRail step={step} done={project.done} onGo={setStep} />
 
+      <div className="step-head">
+        <h2>{STEP_LABEL[step]}</h2>
+        <p>{STEP_DESC[step]}</p>
+      </div>
+
+      {/*
+        진행 표시는 화면 맨 위 한 자리에 고정한다. 오래 걸리는 작업이 많은데
+        버튼 옆에서 돌면 스크롤을 내린 사이에 끝났는지를 알 수 없다.
+      */}
       {busy && (
-        <div className="notice">
-          <span className="spinner" />
-          {busy}
+        <div className="status" style={{ marginBottom: 14 }}>
+          <div className="line">
+            <span className="spinner" />
+            {busy}
+          </div>
         </div>
       )}
       {error && (
         <div className="notice error" style={{ whiteSpace: "pre-wrap" }}>{error}</div>
       )}
 
-      {panel}
+      <div className="step-body">{panel}</div>
+
+      <div className="step-foot">
+        <button disabled={at === 0} onClick={() => setStep(STEPS[at - 1])}>
+          ← {at > 0 ? STEP_LABEL[STEPS[at - 1]] : "이전"}
+        </button>
+        <div className="right">
+          <button
+            className="primary"
+            disabled={at === STEPS.length - 1}
+            onClick={() => setStep(STEPS[at + 1])}
+          >
+            {at < STEPS.length - 1 ? STEP_LABEL[STEPS[at + 1]] : "마지막"} →
+          </button>
+        </div>
+      </div>
 
       <Assistant projectId={project.id} step={step} />
     </>
+  );
+}
+
+/**
+ * 단계 레일.
+ *
+ * 끝난 단계는 체크, 지금 단계는 채운 알약, 남은 단계는 흐린 숫자로 둔다.
+ * 사이의 연결선은 이게 순서가 있는 절차라는 걸 보여준다 — 알약만 나열하면
+ * 그냥 탭처럼 보여서 어디까지 왔는지가 안 읽힌다.
+ *
+ * 다만 이동은 막지 않는다. 레퍼런스 사이트는 앞 단계로 못 돌아가는데,
+ * 이건 개인용 로컬 도구라 되돌아가 고치는 일이 훨씬 잦다.
+ */
+function StepRail({
+  step,
+  done,
+  onGo,
+}: {
+  step: Step;
+  done: Step[];
+  onGo: (step: Step) => void;
+}) {
+  return (
+    <nav className="rail">
+      {STEPS.map((s, i) => (
+        <Fragment key={s}>
+          {i > 0 && <span className={`link ${done.includes(STEPS[i - 1]) ? "done" : ""}`} />}
+          <button
+            className={`step ${step === s ? "active" : ""} ${done.includes(s) ? "done" : ""}`}
+            onClick={() => onGo(s)}
+            title={STEP_DESC[s]}
+          >
+            <span className="n">{done.includes(s) && step !== s ? "✓" : i + 1}</span>
+            {STEP_LABEL[s]}
+          </button>
+        </Fragment>
+      ))}
+    </nav>
   );
 }
 

@@ -363,14 +363,32 @@ export const STEPS = [
 export type Step = (typeof STEPS)[number];
 
 export const STEP_LABEL: Record<Step, string> = {
-  script: "1. 대본",
-  structure: "2. 구조",
-  tts: "3. 음성",
-  storyboard: "4. 스토리보드",
-  images: "5. 이미지",
-  videos: "6. 영상화",
-  styling: "7. 자막·효과",
-  export: "8. 캡컷",
+  script: "대본",
+  structure: "구조",
+  tts: "음성",
+  storyboard: "스토리보드",
+  images: "이미지",
+  videos: "영상화",
+  styling: "자막·효과",
+  export: "캡컷",
+};
+
+/**
+ * 단계 제목 밑에 붙는 한 줄 설명.
+ *
+ * 라벨만으로는 그 단계에서 무엇이 만들어지는지 알 수 없다. 특히 '구조'나
+ * '스토리보드'처럼 이름이 추상적인 단계가 그렇다. 화면마다 이 문장이 제목
+ * 바로 밑에 붙어서, 지금 뭘 하는 자리인지를 매번 다시 말해준다.
+ */
+export const STEP_DESC: Record<Step, string> = {
+  script: "주제와 레퍼런스를 근거로 대본을 씁니다.",
+  structure: "대본을 구간과 자막 줄로 나누고 다듬습니다.",
+  tts: "자막 줄마다 음성을 만들고 쉼을 조절합니다.",
+  storyboard: "음성 길이에 맞춰 장면을 묶고 그림 설명을 붙입니다.",
+  images: "장면마다 그림을 만듭니다. 화풍은 전 장면이 같이 갑니다.",
+  videos: "영상으로 갈 장면만 골라 움직이게 만듭니다.",
+  styling: "자막 모양과 장면 효과를 정합니다.",
+  export: "캡컷 드래프트와 범용 번들을 함께 내보냅니다.",
 };
 
 export const projectSchema = z.object({
