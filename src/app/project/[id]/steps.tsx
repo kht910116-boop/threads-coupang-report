@@ -393,34 +393,43 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
 // ─── 3. 음성 ────────────────────────────────────────────────
 
 /**
- * 쉼 프리셋.
+ * 쉼.
  *
  * 무음은 값이 넷(앞·뒤·줄사이·파트사이)이라 따로 받으면 네 번 고민해야 하고,
- * 넷이 서로 안 맞으면 결과가 이상해진다. 함께 움직이는 값이므로 한 덩어리로 묶고,
- * 그래도 직접 만지고 싶은 사람을 위해 '직접'을 남겨둔다.
+ * 넷이 서로 안 맞으면 결과가 이상해진다. 함께 움직이는 값이라 한 덩어리로 묶었다.
+ *
+ * 절대값 프리셋을 두지 않고 **스타일이 정한 값에 배율**을 건다. 쉼의 기준은
+ * 스타일마다 다르기 때문이다 — 쇼츠는 100ms가 보통이고 느린 해설은 320ms가
+ * 보통이다. 절대값으로 두면 어느 스타일에서도 '보통'에 걸리지 않아, 새 프로젝트가
+ * 늘 '직접'으로 열린다. 실제로 그렇게 만들었다가 화면에서 확인하고 고쳤다.
  */
-const PACE_PRESETS = {
-  tight: { leadSilenceMs: 200, tailSilenceMs: 300, gapMs: 80, sectionGapMs: 250 },
-  normal: { leadSilenceMs: 400, tailSilenceMs: 600, gapMs: 200, sectionGapMs: 500 },
-  loose: { leadSilenceMs: 600, tailSilenceMs: 900, gapMs: 380, sectionGapMs: 900 },
-} as const;
+const PACE_FACTORS = { tight: 0.5, normal: 1, loose: 1.6 } as const;
 
-type Pace = keyof typeof PACE_PRESETS | "custom";
+type Pace = keyof typeof PACE_FACTORS | "custom";
+
+const SILENCE_FIELDS = ["leadSilenceMs", "tailSilenceMs", "gapMs", "sectionGapMs"] as const;
+type SilenceField = (typeof SILENCE_FIELDS)[number];
 
 const PACE_OPTIONS = [
-  { id: "tight", label: "촘촘", hint: "줄이 바짝 붙습니다. 정보가 빽빽한 영상에" },
-  { id: "normal", label: "보통", hint: "권장 — 숨 쉴 틈은 있고 늘어지지 않습니다" },
-  { id: "loose", label: "여유", hint: "문장 사이가 넉넉합니다. 차분한 해설에" },
+  { id: "tight", label: "촘촘", hint: "스타일 기준의 절반. 줄이 바짝 붙습니다" },
+  { id: "normal", label: "보통", hint: "권장 — 이 스타일이 정한 기본 쉼" },
+  { id: "loose", label: "여유", hint: "기본보다 넉넉합니다. 차분한 해설에" },
   { id: "custom", label: "직접", hint: "네 값을 직접 넣습니다" },
 ] as const satisfies ReadonlyArray<{ id: Pace; label: string; hint: string }>;
 
-/** 지금 값이 어느 프리셋인지 되짚는다. 어느 것도 아니면 '직접'이다. */
-function paceOf(tts: Project["tts"]): Pace {
-  const match = (Object.keys(PACE_PRESETS) as Array<keyof typeof PACE_PRESETS>).find((key) =>
-    (Object.entries(PACE_PRESETS[key]) as Array<[keyof typeof PACE_PRESETS.normal, number]>).every(
-      ([field, value]) => tts[field] === value,
-    ),
-  );
+/** 스타일 기준값에 배율을 건 무음 네 값. */
+function scaledSilence(base: Project["preset"]["tts"], factor: number): Record<SilenceField, number> {
+  return Object.fromEntries(
+    SILENCE_FIELDS.map((field) => [field, Math.round(base[field] * factor)]),
+  ) as Record<SilenceField, number>;
+}
+
+/** 지금 값이 어느 배율인지 되짚는다. 어느 것도 아니면 '직접'이다. */
+function paceOf(tts: Project["tts"], base: Project["preset"]["tts"]): Pace {
+  const match = (Object.keys(PACE_FACTORS) as Array<keyof typeof PACE_FACTORS>).find((key) => {
+    const want = scaledSilence(base, PACE_FACTORS[key]);
+    return SILENCE_FIELDS.every((field) => tts[field] === want[field]);
+  });
   return match ?? "custom";
 }
 
@@ -430,10 +439,12 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
   // 값만 보고 프리셋을 되짚으면 '직접'을 누른 순간이 표현되지 않는다 —
   // 값이 아직 프리셋과 같으니 계속 그 프리셋으로 읽혀서 숫자 칸이 안 열린다.
   // 그래서 '직접을 골랐다'는 사실만 따로 들고 있는다.
-  const [manual, setManual] = useState(() => paceOf(project.tts) === "custom");
+  const [manual, setManual] = useState(
+    () => paceOf(project.tts, project.preset.tts) === "custom",
+  );
   const choices = useChoices();
   const withAudio = project.lines.filter((l) => l.audio).length;
-  const pace: Pace = manual ? "custom" : paceOf(tts);
+  const pace: Pace = manual ? "custom" : paceOf(tts, project.preset.tts);
 
   const saveSettings = () =>
     run("저장 중…", async () => {
@@ -494,7 +505,9 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
           options={PACE_OPTIONS}
           onChange={(id) => {
             setManual(id === "custom");
-            if (id !== "custom") setTts({ ...tts, ...PACE_PRESETS[id] });
+            if (id !== "custom") {
+              setTts({ ...tts, ...scaledSilence(project.preset.tts, PACE_FACTORS[id]) });
+            }
           }}
         />
 
