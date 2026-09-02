@@ -23,12 +23,37 @@
 
 ## 시작하기
 
+**받은 폴더에서 파일 하나를 더블클릭하면 됩니다.**
+
+| 운영체제 | 실행할 파일 |
+|---|---|
+| Windows | `시작하기-Windows.bat` |
+| macOS | `시작하기-Mac.command` |
+
+Node.js 확인 → 필요한 파일 설치 → 서버 시작 → 브라우저 열기까지 한 번에 합니다.
+처음 한 번만 1~3분 걸리고, 그다음부터는 몇 초입니다.
+**뜬 검은 창은 닫지 마세요.** 그게 서버입니다. 끄려면 그 창에서 Ctrl+C(맥은 Control+C).
+
+macOS에서 "실행할 수 없음"이 뜨면 터미널에서 한 번만:
+
+```bash
+chmod +x "시작하기-Mac.command"
+```
+
+### 직접 명령어로 켜기
+
 ```bash
 npm install
-cp .env.example .env.local   # 비워둬도 된다
-claude                       # /login 으로 구독 계정 로그인 (한 번만)
-npm run dev                  # http://localhost:3000
+npm run dev        # → http://localhost:3000
 ```
+
+### 준비물
+
+| | 없으면 |
+|---|---|
+| **Node.js 20 이상** | 앱이 안 뜬다. 런처가 받는 곳을 열어준다 |
+| **Claude Code** (`claude` → `/login`) | 앱은 뜨지만 대본 생성이 안 된다 |
+| **Chrome** | 앱은 뜨지만 구독 웹 자동화가 안 된다 |
 
 ## 8단계
 
