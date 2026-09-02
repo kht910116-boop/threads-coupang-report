@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 
     return {
       engines: await engineStatus(),
-      engineForced: process.env.PLANNER_ENGINE ?? null,
+      engineForced: process.env.PLANNER_AGENT ?? null,
       tts: ttsStatus(),
       image: imageStatus(),
       video: videoStatus(),

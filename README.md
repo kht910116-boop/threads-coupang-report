@@ -36,22 +36,43 @@ cp .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
 
-### 기획 엔진: 구독제 vs 종량제
+### 기획 엔진: 구독 CLI
 
-**구독제(Claude Pro/Max)를 쓴다면 API 키가 필요 없다.**
-
-Claude 구독은 API 키를 주지 않는다. 하지만 Claude Code는 구독 로그인으로 동작하고
-헤드리스 모드(`-p`)와 구조화 출력(`--json-schema`)을 지원한다. 그래서 이 앱은
-API 대신 로컬 `claude` 바이너리를 불러 같은 결과를 받는다.
+**API 키가 필요 없다.** 구독 요금제는 API 키를 주지 않지만, 구독 CLI는 구독 로그인으로
+돈다. 그래서 이 앱은 API 대신 로컬 CLI 바이너리를 호출한다.
 
 ```bash
 claude          # 실행 후 /login 으로 구독 계정 로그인 (한 번만)
+npm run dev     # .env.local을 비워둬도 기획이 돌아간다
 ```
 
-이러면 `.env.local`을 비워둬도 기획이 돌아간다. 종량제 API 키를 넣으면 그쪽을 쓴다.
-`PLANNER_ENGINE=cli|api`로 못박을 수 있고, 비워두면 자동으로 고른다.
+**CLI는 코드가 아니라 설정으로 붙인다.** CLI마다 플래그가 다르므로 러너는 CLI 이름을
+하나도 모르고, `data/agents.json`(연결 상태 화면에서 편집 가능)이 전부 결정한다.
 
-**주의**: 구독에는 5시간·주간 사용량 한도가 있다. 한 편 기획에 2~3분, 롱폼은 더 걸리므로
+```jsonc
+{
+  "id": "claude",
+  "command": "claude",
+  "args": ["-p", "--system-prompt", "{{system}}",
+           "--json-schema", "{{schema}}",
+           "--output-format", "json", "--tools", "", "--strict-mcp-config"],
+  "promptVia": "stdin",      // stdin | arg
+  "supportsSchema": true,    // false면 스키마를 시스템 프롬프트에 글로 넣는다
+  "resultPath": "result"     // JSON 봉투 안 경로. 비우면 stdout 전체
+}
+```
+
+자리표시자는 `{{system}}` `{{user}}` `{{schema}}` 셋뿐이고, 값이 비는 자리표시자는
+짝이 되는 앞 플래그까지 같이 빠진다. 스키마 플래그가 없는 CLI, 시스템 프롬프트 자리가
+없는 CLI도 자동으로 처리된다 (스키마는 프롬프트에 글로, 시스템은 사용자 프롬프트에 병합).
+
+기본 항목으로 `claude`(검증 완료), `codex`·`grok`·`antigravity`(**플래그 미검증 초안**)가
+들어 있다. 미검증 항목은 실제 플래그에 맞게 고쳐야 하고, 안 쓰면 지우면 된다.
+
+설치된 것을 목록 위에서부터 찾아 쓴다. `PLANNER_AGENT=<id>`로 고정할 수 있다
+(종량제 API는 `api`).
+
+**주의**: 구독에는 사용량 한도가 있다. 한 편 기획에 2~3분, 롱폼은 더 걸리므로
 하루에 수십 편을 몰아 돌리면 한도에 닿을 수 있다.
 
 ### 붙는 서비스

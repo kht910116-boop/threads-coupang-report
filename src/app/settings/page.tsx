@@ -14,8 +14,11 @@ interface ProviderStatus {
 interface EngineStatus {
   id: string;
   label: string;
-  available: boolean;
-  reason: string;
+  command: string;
+  kind: "cli" | "api";
+  installed: boolean;
+  verified: boolean;
+  notes: string;
 }
 
 interface Status {
@@ -101,35 +104,44 @@ export default function SettingsPage() {
 
   return (
     <>
-      <h2>기획 엔진</h2>
+      <h2>기획 엔진 (구독 CLI)</h2>
       <div className="card">
         <p className="dim" style={{ marginTop: 0 }}>
-          둘 중 하나만 있으면 됩니다. 구독제(Claude Pro/Max)는 API 키를 주지 않으므로
-          Claude Code CLI를 경유합니다.
+          구독 요금제는 API 키를 주지 않지만 CLI는 구독 로그인으로 돕니다. 아래 목록에서
+          설치된 것을 위에서부터 찾아 씁니다. 새 CLI를 붙이는 건 플래그 설정을 추가하는
+          일이고, 코드는 건드리지 않습니다.
         </p>
         <table>
           <tbody>
-            {status.engines.map((engine) => {
-              const active =
-                status.engineForced === engine.id ||
-                (!status.engineForced &&
-                  engine.available &&
-                  // 지정이 없으면 API가 우선, 없으면 CLI.
-                  (engine.id === "api" ||
-                    !status.engines.find((e) => e.id === "api")?.available));
+            {status.engines.map((engine, index) => {
+              const active = status.engineForced
+                ? status.engineForced === engine.id
+                : engine.installed &&
+                  status.engines.findIndex((e) => e.installed) === index;
               return (
                 <tr key={engine.id}>
                   <td>
                     <strong>{engine.label}</strong>
-                    {active && engine.available && (
+                    {active && (
                       <span className="pill ok" style={{ marginLeft: 6 }}>사용 중</span>
                     )}
-                    {!engine.available && <br />}
-                    {!engine.available && <small>{engine.reason}</small>}
+                    {engine.kind === "cli" && !engine.verified && (
+                      <span className="pill" style={{ marginLeft: 6 }}>플래그 미검증</span>
+                    )}
+                    <br />
+                    <small className="mono">{engine.command}</small>
+                    {engine.notes && (
+                      <>
+                        <br />
+                        <small>{engine.notes}</small>
+                      </>
+                    )}
                   </td>
                   <td style={{ width: 1, whiteSpace: "nowrap" }}>
-                    <span className={engine.available ? "pill ok" : "pill off"}>
-                      {engine.available ? "준비됨" : "사용 불가"}
+                    <span className={engine.installed ? "pill ok" : "pill off"}>
+                      {engine.installed
+                        ? engine.kind === "cli" ? "설치됨" : "키 있음"
+                        : engine.kind === "cli" ? "없음" : "키 없음"}
                     </span>
                   </td>
                 </tr>
@@ -138,16 +150,19 @@ export default function SettingsPage() {
           </tbody>
         </table>
         <small>
-          <code>PLANNER_ENGINE</code>을 <code>cli</code> 또는 <code>api</code>로 두면
-          고정됩니다{status.engineForced && ` (지금: ${status.engineForced})`}.
+          <code>PLANNER_AGENT</code>에 id를 넣으면 고정됩니다 (예: <code>claude</code>,{" "}
+          <code>codex</code>, 종량제는 <code>api</code>)
+          {status.engineForced && ` — 지금: ${status.engineForced}`}.
         </small>
-        {!status.engines.some((e) => e.available) && (
+        {!status.engines.some((e) => e.installed) && (
           <div className="notice error">
-            기획을 만들 방법이 없습니다. Claude Code CLI를 설치해 <code>claude</code>로
-            로그인하거나, <code>ANTHROPIC_API_KEY</code>를 넣으세요.
+            기획을 만들 방법이 없습니다. 구독 CLI 중 하나를 설치해 로그인하거나,{" "}
+            <code>ANTHROPIC_API_KEY</code>를 넣으세요.
           </div>
         )}
       </div>
+
+      <AgentEditor />
 
       {section("음성 (TTS)", status.tts, true)}
 
@@ -202,5 +217,219 @@ export default function SettingsPage() {
 
       {error && <div className="notice error">{error}</div>}
     </>
+  );
+}
+
+interface Agent {
+  id: string;
+  label: string;
+  command: string;
+  args: string[];
+  promptVia: "stdin" | "arg";
+  supportsSchema: boolean;
+  resultPath: string;
+  versionArgs: string[];
+  timeoutMs: number;
+  verified: boolean;
+  notes: string;
+}
+
+const NEW_AGENT: Agent = {
+  id: "",
+  label: "",
+  command: "",
+  args: ["-p", "{{user}}"],
+  promptVia: "arg",
+  supportsSchema: false,
+  resultPath: "",
+  versionArgs: ["--version"],
+  timeoutMs: 900000,
+  verified: false,
+  notes: "",
+};
+
+/**
+ * CLI 설정 편집기.
+ *
+ * CLI마다 플래그가 달라서, 새 구독 CLI를 붙이는 일이 코드 수정이 되지 않도록
+ * 여기서 직접 고치게 한다.
+ */
+function AgentEditor() {
+  const [agents, setAgents] = useState<Agent[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [failure, setFailure] = useState("");
+
+  useEffect(() => {
+    void api<Agent[]>("/api/agents")
+      .then(setAgents)
+      .catch((err) => setFailure(String(err)));
+  }, []);
+
+  function update(index: number, patch: Partial<Agent>) {
+    setAgents((current) =>
+      current
+        ? current.map((agent, i) => (i === index ? { ...agent, ...patch } : agent))
+        : current,
+    );
+  }
+
+  async function save() {
+    if (!agents) return;
+    setBusy(true);
+    setMessage("");
+    setFailure("");
+    try {
+      setAgents(await api<Agent[]>("/api/agents", { method: "PUT", json: agents }));
+      setMessage("저장했습니다. 목록 위쪽 상태는 새로고침하면 갱신됩니다.");
+    } catch (err) {
+      setFailure(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!agents) return null;
+
+  return (
+    <div className="card" style={{ marginTop: 12 }}>
+      <div className="spread">
+        <h3 style={{ margin: 0 }}>CLI 플래그 설정</h3>
+        <button className="sm" onClick={() => setOpen(!open)}>
+          {open ? "접기" : "펼치기"}
+        </button>
+      </div>
+
+      {open && (
+        <>
+          <p className="dim">
+            자리표시자: <code>{"{{system}}"}</code> 시스템 프롬프트,{" "}
+            <code>{"{{user}}"}</code> 사용자 프롬프트, <code>{"{{schema}}"}</code> JSON
+            Schema. 값이 비는 자리표시자는 짝이 되는 앞 플래그까지 같이 빠집니다.
+          </p>
+
+          {agents.map((agent, index) => (
+            <div
+              key={index}
+              style={{
+                borderTop: "1px solid var(--border)",
+                paddingTop: 12,
+                marginTop: 12,
+              }}
+            >
+              <div className="grid two">
+                <div className="field">
+                  <label>id (PLANNER_AGENT에 쓰는 값)</label>
+                  <input
+                    value={agent.id}
+                    onChange={(e) => update(index, { id: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>이름</label>
+                  <input
+                    value={agent.label}
+                    onChange={(e) => update(index, { label: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>실행 명령 (또는 전체 경로)</label>
+                  <input
+                    className="mono"
+                    value={agent.command}
+                    onChange={(e) => update(index, { command: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>프롬프트 전달</label>
+                  <select
+                    value={agent.promptVia}
+                    onChange={(e) =>
+                      update(index, { promptVia: e.target.value as Agent["promptVia"] })
+                    }
+                  >
+                    <option value="stdin">stdin으로</option>
+                    <option value="arg">인자로 ({"{{user}}"} 자리)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="field">
+                <label>인자 (한 줄에 하나)</label>
+                <textarea
+                  className="mono"
+                  rows={Math.min(12, agent.args.length + 1)}
+                  value={agent.args.join("\n")}
+                  onChange={(e) => update(index, { args: e.target.value.split("\n") })}
+                />
+              </div>
+
+              <div className="grid two">
+                <div className="field">
+                  <label>결과 경로 (JSON 봉투일 때, 비우면 stdout 전체)</label>
+                  <input
+                    className="mono"
+                    value={agent.resultPath}
+                    onChange={(e) => update(index, { resultPath: e.target.value })}
+                    placeholder="예: result"
+                  />
+                </div>
+                <div className="field">
+                  <label>설치 확인 인자</label>
+                  <input
+                    className="mono"
+                    value={agent.versionArgs.join(" ")}
+                    onChange={(e) =>
+                      update(index, { versionArgs: e.target.value.split(/\s+/).filter(Boolean) })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="row">
+                <label style={{ margin: 0, display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto" }}
+                    checked={agent.supportsSchema}
+                    onChange={(e) => update(index, { supportsSchema: e.target.checked })}
+                  />
+                  JSON Schema 플래그 지원
+                </label>
+                <label style={{ margin: 0, display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto" }}
+                    checked={agent.verified}
+                    onChange={(e) => update(index, { verified: e.target.checked })}
+                  />
+                  검증 완료
+                </label>
+                <button
+                  className="sm danger"
+                  onClick={() => setAgents(agents.filter((_, i) => i !== index))}
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+          ))}
+
+          <div className="row" style={{ marginTop: 16 }}>
+            <button onClick={() => setAgents([...agents, { ...NEW_AGENT }])}>
+              CLI 추가
+            </button>
+            <button className="primary" onClick={save} disabled={busy}>
+              {busy && <span className="spinner" />}
+              저장
+            </button>
+          </div>
+
+          {message && <div className="notice ok">{message}</div>}
+          {failure && <div className="notice error">{failure}</div>}
+        </>
+      )}
+    </div>
   );
 }
