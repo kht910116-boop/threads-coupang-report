@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       if (!(TTS_PROVIDERS as readonly string[]).includes(voicesFor)) {
         throw new Error(`알 수 없는 TTS 제공자: ${voicesFor}`);
       }
-      const provider = getTtsProvider(voicesFor as TtsProviderId);
+      const provider = await getTtsProvider(voicesFor as TtsProviderId);
       if (!provider.listVoices) {
         return {
           voices: [],

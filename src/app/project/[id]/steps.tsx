@@ -4,15 +4,62 @@ import { useEffect, useRef, useState } from "react";
 import { api, assetUrl } from "@/lib/api-client";
 import {
   EFFECT_LABEL,
-  IMAGE_PROVIDERS,
   MAX_REFERENCES,
   SCENE_EFFECTS,
   SECTION_LABEL,
-  TTS_PROVIDERS,
   type Project,
   type Scene,
   type ScriptSection,
 } from "@/lib/types";
+
+interface Choice {
+  id: string;
+  label: string;
+  kind: "builtin" | "web";
+  needsApiKey: boolean;
+  configured: boolean;
+}
+
+interface Choices {
+  tts: Choice[];
+  image: Choice[];
+  video: Choice[];
+}
+
+/**
+ * 쓸 수 있는 서비스 목록.
+ * 코드에 박힌 어댑터와 구독 웹 레시피가 한 목록으로 온다.
+ * API 키를 안 쓰는 사람은 '(웹)' 이나 '직접 넣기'만 고르면 된다.
+ */
+function useChoices(): Choices | null {
+  const [choices, setChoices] = useState<Choices | null>(null);
+  useEffect(() => {
+    void api<Choices>("/api/providers/choices").then(setChoices).catch(() => setChoices(null));
+  }, []);
+  return choices;
+}
+
+/** 서비스 고르는 드롭다운. API 키가 필요한데 없는 항목은 표시해준다. */
+function ProviderSelect({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: Choice[] | undefined;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      {(choices ?? [{ id: value, label: value, kind: "builtin", needsApiKey: false, configured: true }]).map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.label}
+          {c.needsApiKey && !c.configured ? " — API 키 없음" : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export interface PanelProps {
   project: Project;
@@ -262,6 +309,7 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
 
 export function StepTts({ project, setProject, run, busy }: PanelProps) {
   const [tts, setTts] = useState(project.tts);
+  const choices = useChoices();
   const withAudio = project.lines.filter((l) => l.audio).length;
 
   const saveSettings = () =>
@@ -290,12 +338,11 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
         <div className="grid two">
           <div className="field">
             <label>TTS 서비스</label>
-            <select
+            <ProviderSelect
+              choices={choices?.tts}
               value={tts.provider}
-              onChange={(e) => setTts({ ...tts, provider: e.target.value as typeof tts.provider })}
-            >
-              {TTS_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
+              onChange={(id) => setTts({ ...tts, provider: id })}
+            />
           </div>
           <div className="field">
             <label>세부 모델</label>
@@ -646,6 +693,7 @@ export function StepVisuals({
   kind,
 }: PanelProps & { kind: "image" | "video" }) {
   const [image, setImage] = useState(project.image);
+  const choices = useChoices();
 
   const scenes = [...project.scenes].sort((a, b) => a.index - b.index);
   const targets = kind === "image" ? scenes : scenes.filter((s) => s.mode === "video");
@@ -674,14 +722,11 @@ export function StepVisuals({
             <div className="grid two">
               <div className="field">
                 <label>이미지 서비스</label>
-                <select
+                <ProviderSelect
+                  choices={choices?.image}
                   value={image.provider}
-                  onChange={(e) =>
-                    setImage({ ...image, provider: e.target.value as typeof image.provider })
-                  }
-                >
-                  {IMAGE_PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
+                  onChange={(id) => setImage({ ...image, provider: id })}
+                />
               </div>
               <div className="field">
                 <label>모델</label>

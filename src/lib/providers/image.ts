@@ -1,4 +1,6 @@
-import type { Aspect, ImageProviderId } from "@/lib/types";
+import { isWebProvider, webRecipeIdOf, type Aspect, type ImageProviderId } from "@/lib/types";
+import { fetchMedia } from "./web/driver";
+import { getMediaRecipe, listMediaRecipes } from "./web/media";
 import { httpError } from "./tts/types";
 
 /**
@@ -127,10 +129,50 @@ const manual: ImageProvider = {
 
 export const IMAGE_ADAPTERS: ImageProvider[] = [gemini, openai, manual];
 
-export function getImageProvider(id: ImageProviderId): ImageProvider {
+/** 구독 웹을 이미지 생성기로 쓴다 — API 키가 필요 없다. */
+async function makeWebImage(recipeId: string): Promise<ImageProvider> {
+  const recipe = await getMediaRecipe(recipeId);
+  if (!recipe) throw new Error(`웹 레시피 "${recipeId}"를 찾을 수 없습니다.`);
+  if (recipe.kind !== "image") {
+    throw new Error(`"${recipe.label}"은(는) 이미지용 레시피가 아닙니다.`);
+  }
+
+  return {
+    id: `web:${recipe.id}`,
+    label: `${recipe.label} (웹)`,
+    envKeys: [],
+    isConfigured: () => true,
+    async generate({ prompt, aspect }) {
+      // 웹 UI에는 화면비 설정이 따로 없는 경우가 많아 프롬프트에 실어 보낸다.
+      const media = await fetchMedia(recipe, `${prompt} Aspect ratio ${aspect}.`);
+      return {
+        image: media.data,
+        extension: media.extension === "jpg" ? "jpg" : "png",
+        mime: media.mime,
+      };
+    },
+  };
+}
+
+export async function getImageProvider(id: ImageProviderId): Promise<ImageProvider> {
+  if (isWebProvider(id)) return makeWebImage(webRecipeIdOf(id));
   const provider = IMAGE_ADAPTERS.find((p) => p.id === id);
   if (!provider) throw new Error(`알 수 없는 이미지 제공자: ${id}`);
   return provider;
+}
+
+export async function imageChoices() {
+  const recipes = await listMediaRecipes();
+  return [
+    ...IMAGE_ADAPTERS.map((p) => ({
+      id: p.id, label: p.label, kind: "builtin" as const,
+      needsApiKey: p.envKeys.length > 0, configured: p.isConfigured(),
+    })),
+    ...recipes.filter((r) => r.kind === "image").map((r) => ({
+      id: `web:${r.id}`, label: `${r.label} (웹)`, kind: "web" as const,
+      needsApiKey: false, configured: true,
+    })),
+  ];
 }
 
 export const imageStatus = () =>

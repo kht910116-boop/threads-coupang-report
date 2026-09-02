@@ -57,7 +57,7 @@ export async function POST(request: Request, { params }: Params) {
         let providerId: string;
 
         if (kind === "image") {
-          const provider = getImageProvider(project.image.provider);
+          const provider = await getImageProvider(project.image.provider);
           const result = await provider.generate({
             // 화풍 접두·접미를 여기서 붙인다. 그래야 모든 장면 그림체가 같다.
             prompt: composeImagePrompt(scene.prompt, project.image),
@@ -68,7 +68,7 @@ export async function POST(request: Request, { params }: Params) {
           extension = result.extension;
           providerId = provider.id;
         } else {
-          const provider = getVideoProvider(project.preset.video.provider);
+          const provider = await getVideoProvider(project.preset.video.provider);
           const result = await provider.generate({
             prompt: [composeImagePrompt(scene.prompt, project.image), scene.motionPrompt]
               .filter(Boolean)

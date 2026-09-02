@@ -1,4 +1,6 @@
-import type { Aspect, VideoProviderId } from "@/lib/types";
+import { isWebProvider, webRecipeIdOf, type Aspect, type VideoProviderId } from "@/lib/types";
+import { fetchMedia } from "./web/driver";
+import { getMediaRecipe, listMediaRecipes } from "./web/media";
 import { httpError } from "./tts/types";
 
 /**
@@ -112,10 +114,45 @@ const manual: VideoProvider = {
 
 export const VIDEO_ADAPTERS: VideoProvider[] = [veo, manual];
 
-export function getVideoProvider(id: VideoProviderId): VideoProvider {
+/** 구독 웹을 영상 생성기로 쓴다 — API 키가 필요 없다. */
+async function makeWebVideo(recipeId: string): Promise<VideoProvider> {
+  const recipe = await getMediaRecipe(recipeId);
+  if (!recipe) throw new Error(`웹 레시피 "${recipeId}"를 찾을 수 없습니다.`);
+  if (recipe.kind !== "video") {
+    throw new Error(`"${recipe.label}"은(는) 영상용 레시피가 아닙니다.`);
+  }
+
+  return {
+    id: `web:${recipe.id}`,
+    label: `${recipe.label} (웹)`,
+    envKeys: [],
+    isConfigured: () => true,
+    async generate({ prompt, aspect }) {
+      const media = await fetchMedia(recipe, `${prompt} Aspect ratio ${aspect}.`);
+      return { video: media.data, extension: "mp4", mime: media.mime };
+    },
+  };
+}
+
+export async function getVideoProvider(id: VideoProviderId): Promise<VideoProvider> {
+  if (isWebProvider(id)) return makeWebVideo(webRecipeIdOf(id));
   const provider = VIDEO_ADAPTERS.find((p) => p.id === id);
   if (!provider) throw new Error(`알 수 없는 영상 제공자: ${id}`);
   return provider;
+}
+
+export async function videoChoices() {
+  const recipes = await listMediaRecipes();
+  return [
+    ...VIDEO_ADAPTERS.map((p) => ({
+      id: p.id, label: p.label, kind: "builtin" as const,
+      needsApiKey: p.envKeys.length > 0, configured: p.isConfigured(),
+    })),
+    ...recipes.filter((r) => r.kind === "video").map((r) => ({
+      id: `web:${r.id}`, label: `${r.label} (웹)`, kind: "web" as const,
+      needsApiKey: false, configured: true,
+    })),
+  ];
 }
 
 export const videoStatus = () =>

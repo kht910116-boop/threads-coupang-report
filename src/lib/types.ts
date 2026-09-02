@@ -86,20 +86,32 @@ export const EFFECT_LABEL: Record<SceneEffect, string> = {
   glitch: "글리치",
 };
 
+/**
+ * 프로바이더 id.
+ *
+ * 아래는 코드에 박혀 있는 것들이고, 여기 없는 값도 올 수 있다:
+ *   "web:<레시피id>" — 구독 웹을 브라우저로 돌려 파일을 받아온다 (API 키 불필요).
+ * 그래서 프로바이더 필드는 열거형이 아니라 문자열이다.
+ */
 export const TTS_PROVIDERS = [
+  "manual",
   "elevenlabs",
   "typecast",
   "google-ai-studio",
   "google-cloud",
-  "manual",
 ] as const;
-export type TtsProviderId = (typeof TTS_PROVIDERS)[number];
+export type TtsProviderId = string;
 
-export const IMAGE_PROVIDERS = ["gemini", "openai", "manual"] as const;
-export type ImageProviderId = (typeof IMAGE_PROVIDERS)[number];
+export const IMAGE_PROVIDERS = ["manual", "gemini", "openai"] as const;
+export type ImageProviderId = string;
 
-export const VIDEO_PROVIDERS = ["gemini-veo", "manual"] as const;
-export type VideoProviderId = (typeof VIDEO_PROVIDERS)[number];
+export const VIDEO_PROVIDERS = ["manual", "gemini-veo"] as const;
+export type VideoProviderId = string;
+
+/** 구독 웹 레시피를 프로바이더 id로 쓰는 접두어. */
+export const WEB_PROVIDER_PREFIX = "web:";
+export const isWebProvider = (id: string) => id.startsWith(WEB_PROVIDER_PREFIX);
+export const webRecipeIdOf = (id: string) => id.slice(WEB_PROVIDER_PREFIX.length);
 
 // ─────────────────────────────────────────────────────────────
 // 설정 묶음 — 프리셋과 프로젝트가 공유한다
@@ -118,7 +130,7 @@ export type Intervals = z.infer<typeof intervalsSchema>;
  * 접두부·접미부가 모든 씬에 똑같이 붙어서 그림체가 흔들리지 않는다.
  */
 export const imageStyleSchema = z.object({
-  provider: z.enum(IMAGE_PROVIDERS).default("manual"),
+  provider: z.string().default("manual"),
   model: z.string().default(""),
   /** 모든 프롬프트 맨 앞에 붙는 화풍 문구 */
   prefix: z.string().default(""),
@@ -129,7 +141,7 @@ export const imageStyleSchema = z.object({
 export type ImageStyle = z.infer<typeof imageStyleSchema>;
 
 export const ttsSettingsSchema = z.object({
-  provider: z.enum(TTS_PROVIDERS).default("manual"),
+  provider: z.string().default("manual"),
   /** 서비스 안의 세부 모델 (예: eleven_multilingual_v2, ssfm-v21) */
   model: z.string().default(""),
   voiceId: z.string().default(""),
@@ -206,7 +218,7 @@ export const presetSchema = z.object({
   image: imageStyleSchema,
   video: z.object({
     defaultMode: z.enum(CUT_MODES).default("image"),
-    provider: z.enum(VIDEO_PROVIDERS).default("manual"),
+    provider: z.string().default("manual"),
     model: z.string().default(""),
   }),
   tts: ttsSettingsSchema,

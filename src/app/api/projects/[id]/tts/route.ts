@@ -30,7 +30,7 @@ export async function POST(request: Request, { params }: Params) {
     if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
 
     const { lineIds, redo } = bodySchema.parse(await request.json().catch(() => ({})));
-    const provider = getTtsProvider(project.tts.provider);
+    const provider = await getTtsProvider(project.tts.provider);
 
     const targets: ScriptLine[] =
       lineIds && lineIds.length > 0

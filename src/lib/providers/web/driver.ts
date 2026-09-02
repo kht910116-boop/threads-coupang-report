@@ -1,6 +1,7 @@
 import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { dataDir, ensureDir } from "@/lib/paths";
+import type { MediaRecipe } from "./media";
 import type { WebRecipe } from "./recipes";
 
 /**
@@ -74,7 +75,7 @@ async function openContext(
  * 이때만 화면에 창이 뜬다. 이후 작업 실행은 전부 헤드리스다.
  */
 export async function loginToProvider(
-  recipe: WebRecipe,
+  recipe: WebRecipe | MediaRecipe,
   waitMs = 5 * 60 * 1000,
 ): Promise<{ loggedIn: boolean }> {
   const context = await openContext(recipe.id, false);
@@ -98,7 +99,7 @@ export async function loginToProvider(
 }
 
 /** 로그인돼 있는지 헤드리스로 조용히 확인한다. */
-export async function checkLoggedIn(recipe: WebRecipe): Promise<boolean> {
+export async function checkLoggedIn(recipe: WebRecipe | MediaRecipe): Promise<boolean> {
   if (!recipe.loggedInSelector) return false;
   let context: BrowserContext | null = null;
   try {
@@ -116,12 +117,196 @@ export async function checkLoggedIn(recipe: WebRecipe): Promise<boolean> {
 
 /** 프로파일에 남아 있는 세션 쿠키를 꺼낸다 — 쿠키 방식 호출에 쓴다. */
 export async function exportCookies(
-  recipe: WebRecipe,
+  recipe: WebRecipe | MediaRecipe,
 ): Promise<Array<{ name: string; value: string; domain: string }>> {
   const context = await openContext(recipe.id, true);
   try {
     const cookies = await context.cookies(recipe.url);
     return cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain }));
+  } finally {
+    await context.close();
+  }
+}
+
+// ─── 파일 받아오기 ────────────────────────────────────────────
+// 챗은 글자를 받아오지만 이미지·음성은 파일을 받아와야 한다.
+// API 키 없이 구독만으로 3·5·6단계를 돌리기 위한 경로다.
+
+export interface MediaResult {
+  data: Buffer;
+  /** 확장자 (점 없이) */
+  extension: string;
+  mime: string;
+}
+
+const EXTENSION_BY_MIME: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/webm": "webm",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+};
+
+/**
+ * 결과 요소(img/audio/video)의 src를 **페이지 안에서** 받아온다.
+ *
+ * blob: 과 data: URL은 브라우저 밖에서 못 읽는다. 그래서 페이지 컨텍스트에서
+ * fetch해 base64로 바꿔 꺼낸다. 로그인 쿠키도 그대로 실려서 인증된 URL도 된다.
+ */
+async function readMediaFromElement(
+  page: Page,
+  selector: string,
+  timeoutMs: number,
+): Promise<MediaResult> {
+  const locator = page.locator(selector).last();
+  await locator.waitFor({ state: "attached", timeout: timeoutMs });
+
+  // src가 붙을 때까지 기다린다 — 자리표시자가 먼저 뜨는 사이트가 있다.
+  await page
+    .waitForFunction(
+      (sel) => {
+        const nodes = document.querySelectorAll(sel);
+        const last = nodes[nodes.length - 1] as
+          | HTMLImageElement
+          | HTMLMediaElement
+          | undefined;
+        const src = last?.getAttribute("src") ?? "";
+        return src.length > 0 && !src.startsWith("about:");
+      },
+      selector,
+      { timeout: timeoutMs },
+    )
+    .catch(() => {
+      throw new Error(
+        `결과 요소(${selector})에 src가 붙지 않았습니다. resultSelector를 확인하세요.`,
+      );
+    });
+
+  const result = await page.evaluate(async (sel) => {
+    const nodes = document.querySelectorAll(sel);
+    const last = nodes[nodes.length - 1] as HTMLElement | undefined;
+    const src = last?.getAttribute("src") ?? "";
+    if (!src) return null;
+
+    const response = await fetch(src);
+    const blob = await response.blob();
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("read failed"));
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(blob);
+    });
+    return { base64, mime: blob.type || "" };
+  }, selector);
+
+  if (!result) throw new Error("결과 요소에서 src를 읽지 못했습니다.");
+
+  const comma = result.base64.indexOf(",");
+  const data = Buffer.from(result.base64.slice(comma + 1), "base64");
+  const mime = result.mime || "application/octet-stream";
+  return { data, extension: EXTENSION_BY_MIME[mime] ?? "bin", mime };
+}
+
+/** 다운로드 버튼을 눌러 떨어지는 파일을 가로챈다. */
+async function readMediaFromDownload(
+  page: Page,
+  buttonSelector: string,
+  timeoutMs: number,
+): Promise<MediaResult> {
+  const button = page.locator(buttonSelector).last();
+  await button.waitFor({ state: "visible", timeout: timeoutMs });
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: timeoutMs }),
+    button.click(),
+  ]);
+
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const data = Buffer.concat(chunks);
+
+  const extension =
+    path.extname(download.suggestedFilename()).replace(".", "").toLowerCase() || "bin";
+  const mime =
+    Object.entries(EXTENSION_BY_MIME).find(([, ext]) => ext === extension)?.[0] ??
+    "application/octet-stream";
+  return { data, extension, mime };
+}
+
+/**
+ * 구독 웹에서 이미지·음성·영상을 한 번 뽑아온다. 전부 백그라운드로 돈다.
+ */
+export async function fetchMedia(
+  recipe: MediaRecipe,
+  prompt: string,
+): Promise<MediaResult> {
+  const context = await openContext(recipe.id, true);
+  try {
+    const page = context.pages()[0] ?? (await context.newPage());
+    await page.goto(recipe.url, { waitUntil: "domcontentloaded", timeout: 90000 });
+
+    if (recipe.loggedInSelector) {
+      const ready = await page
+        .waitForSelector(recipe.loggedInSelector, { timeout: 30000 })
+        .then(() => true)
+        .catch(() => false);
+      if (!ready) {
+        throw new Error(
+          `${recipe.label}에 로그인돼 있지 않은 것 같습니다. 연결 상태 화면에서 '로그인'을 눌러주세요.`,
+        );
+      }
+    }
+
+    // 생성 전에 눌러야 하는 것들 (설정 열기, 모델 고르기 등)
+    for (const selector of recipe.preClickSelectors) {
+      await page.locator(selector).first().click({ timeout: 15000 }).catch(() => {
+        // 이미 눌려 있거나 없는 버튼일 수 있다. 막지 않는다.
+      });
+    }
+
+    await fillPrompt(page, recipe.promptSelector, prompt);
+
+    if (recipe.submit === "enter") {
+      await page.keyboard.press("Enter");
+    } else {
+      await page.locator(recipe.submit).first().click();
+    }
+
+    if (recipe.extract === "download") {
+      // 다운로드 버튼이 뜨려면 생성이 끝나야 한다. settleMs만큼 여유를 준다.
+      await page.waitForTimeout(recipe.settleMs);
+      return await readMediaFromDownload(
+        page,
+        recipe.downloadSelector || "button",
+        recipe.timeoutMs,
+      );
+    }
+
+    if (!recipe.resultSelector) {
+      throw new Error("resultSelector가 비어 있습니다. 결과 요소 선택자를 넣어주세요.");
+    }
+    const media = await readMediaFromElement(
+      page,
+      recipe.resultSelector,
+      recipe.timeoutMs,
+    );
+    // 저해상도 미리보기가 먼저 뜨는 사이트가 있어, 한 번 더 기다렸다 다시 읽는다.
+    if (recipe.settleMs > 0) {
+      await page.waitForTimeout(recipe.settleMs);
+      const settled = await readMediaFromElement(
+        page,
+        recipe.resultSelector,
+        recipe.timeoutMs,
+      ).catch(() => media);
+      return settled.data.length >= media.data.length ? settled : media;
+    }
+    return media;
   } finally {
     await context.close();
   }
