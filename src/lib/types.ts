@@ -3,10 +3,22 @@ import { z } from "zod";
 /**
  * 이 파일이 앱 전체의 계약이다.
  *
- * 핵심 개념: 프리셋("스타일")이 결과물의 핏을 잠근다.
- * 사용자는 주제 + 프리셋만 고르고, 화면비·컷 길이·화풍·말투·자막은
- * 전부 프리셋에서 결정된다. 그래서 매번 같은 핏으로 나온다.
+ * 파이프라인:
+ *   1 대본(레퍼런스 최대 5개)  →  2 구조(훅+인트로+행동유도-파트N-클로징)
+ *   →  3 TTS(무음·모델·자막 옵션)  →  4 스토리보드(자막 라인을 씬으로 묶기)
+ *   →  5 일관된 이미지  →  6 영상화할 컷 선택  →  7 자막·효과  →  8 캡컷 내보내기
+ *
+ * 핵심 단위 두 가지:
+ *   **자막 라인(ScriptLine)** — 대본의 최소 단위. TTS 한 덩어리이자 자막 한 줄.
+ *   **씬(Scene)** — 연속된 자막 라인 묶음. 이미지/영상 한 장이 걸리는 단위.
+ *
+ * 씬은 라인을 임의로 묶는 게 아니라, 그 라인들의 **실제 음성 길이 합**이
+ * 파트별 '장면 간격' 범위에 들어오도록 묶는다.
  */
+
+// ─────────────────────────────────────────────────────────────
+// 기본
+// ─────────────────────────────────────────────────────────────
 
 export const ASPECTS = ["9:16", "16:9", "1:1"] as const;
 export type Aspect = (typeof ASPECTS)[number];
@@ -17,9 +29,62 @@ export const ASPECT_RESOLUTION: Record<Aspect, { width: number; height: number }
   "1:1": { width: 1080, height: 1080 },
 };
 
-/** 컷을 어떻게 채울지. 프리셋이 기본값을 주고, 컷마다 덮어쓸 수 있다. */
+/** 대본 구조. 파트는 여러 개 올 수 있고 나머지는 한 번씩이다. */
+export const SECTION_KINDS = ["hook", "intro", "cta", "part", "closing"] as const;
+export type SectionKind = (typeof SECTION_KINDS)[number];
+
+export const SECTION_LABEL: Record<SectionKind, string> = {
+  hook: "훅",
+  intro: "인트로",
+  cta: "행동유도",
+  part: "파트",
+  closing: "클로징",
+};
+
+/** 장면 간격은 이 세 묶음으로만 설정한다 (화면의 슬라이더 3개와 같다). */
+export const INTERVAL_GROUPS = ["hookIntro", "part", "closing"] as const;
+export type IntervalGroup = (typeof INTERVAL_GROUPS)[number];
+
+export function intervalGroupOf(kind: SectionKind): IntervalGroup {
+  if (kind === "hook" || kind === "intro" || kind === "cta") return "hookIntro";
+  if (kind === "closing") return "closing";
+  return "part";
+}
+
 export const CUT_MODES = ["image", "video"] as const;
 export type CutMode = (typeof CUT_MODES)[number];
+
+/** 씬 전환·연출 효과. 캡컷으로 나갈 때 각각의 표현으로 옮긴다. */
+export const SCENE_EFFECTS = [
+  "none",
+  "fade",
+  "dissolve",
+  "zoomIn",
+  "zoomOut",
+  "panLeft",
+  "panRight",
+  "blur",
+  "blackFlash",
+  "whiteFlash",
+  "overlay",
+  "glitch",
+] as const;
+export type SceneEffect = (typeof SCENE_EFFECTS)[number];
+
+export const EFFECT_LABEL: Record<SceneEffect, string> = {
+  none: "없음",
+  fade: "페이드",
+  dissolve: "디졸브",
+  zoomIn: "줌인",
+  zoomOut: "줌아웃",
+  panLeft: "좌로 팬",
+  panRight: "우로 팬",
+  blur: "블러",
+  blackFlash: "블랙 플래시",
+  whiteFlash: "화이트 플래시",
+  overlay: "오버레이",
+  glitch: "글리치",
+};
 
 export const TTS_PROVIDERS = [
   "elevenlabs",
@@ -37,7 +102,84 @@ export const VIDEO_PROVIDERS = ["gemini-veo", "manual"] as const;
 export type VideoProviderId = (typeof VIDEO_PROVIDERS)[number];
 
 // ─────────────────────────────────────────────────────────────
-// 프리셋 (= 스타일)
+// 설정 묶음 — 프리셋과 프로젝트가 공유한다
+// ─────────────────────────────────────────────────────────────
+
+/** 파트별 장면 길이 기준(초). 씬을 묶는 규칙이 된다. */
+export const intervalsSchema = z.object({
+  hookIntro: z.object({ min: z.number().positive(), max: z.number().positive() }),
+  part: z.object({ min: z.number().positive(), max: z.number().positive() }),
+  closing: z.object({ min: z.number().positive(), max: z.number().positive() }),
+});
+export type Intervals = z.infer<typeof intervalsSchema>;
+
+/**
+ * 이미지 화풍. 첨부 스토리보드처럼 **접두부 + 장면 묘사 + 접미부** 구조다.
+ * 접두부·접미부가 모든 씬에 똑같이 붙어서 그림체가 흔들리지 않는다.
+ */
+export const imageStyleSchema = z.object({
+  provider: z.enum(IMAGE_PROVIDERS).default("manual"),
+  model: z.string().default(""),
+  /** 모든 프롬프트 맨 앞에 붙는 화풍 문구 */
+  prefix: z.string().default(""),
+  /** 모든 프롬프트 맨 뒤에 붙는 문구 (자막 금지, 워터마크 금지 등) */
+  suffix: z.string().default(""),
+  negativePrompt: z.string().default(""),
+});
+export type ImageStyle = z.infer<typeof imageStyleSchema>;
+
+export const ttsSettingsSchema = z.object({
+  provider: z.enum(TTS_PROVIDERS).default("manual"),
+  /** 서비스 안의 세부 모델 (예: eleven_multilingual_v2, ssfm-v21) */
+  model: z.string().default(""),
+  voiceId: z.string().default(""),
+  speed: z.number().default(1.0),
+  pitch: z.number().default(0),
+  /** 영상 맨 앞 무음(ms) */
+  leadSilenceMs: z.number().int().min(0).default(300),
+  /** 영상 맨 뒤 무음(ms) */
+  tailSilenceMs: z.number().int().min(0).default(500),
+  /** 자막 라인 사이 무음(ms) — 호흡을 만든다 */
+  gapMs: z.number().int().min(0).default(180),
+  /** 파트가 바뀔 때 추가로 주는 무음(ms) */
+  sectionGapMs: z.number().int().min(0).default(450),
+});
+export type TtsSettings = z.infer<typeof ttsSettingsSchema>;
+
+export const captionStyleSchema = z.object({
+  enabled: z.boolean().default(true),
+  /** 미리캔버스 프로·캔바 폰트 등 실제 설치된 폰트 이름 */
+  fontFamily: z.string().default("Pretendard"),
+  fontSize: z.number().default(12),
+  color: z.string().default("#FFFFFF"),
+  strokeColor: z.string().default("#000000"),
+  strokeWidth: z.number().default(0.08),
+  position: z.enum(["top", "center", "bottom"]).default("bottom"),
+  /** 화면 높이 대비 위/아래 여백 비율 */
+  marginRatio: z.number().default(0.12),
+  /** 한 줄 최대 글자수 — 넘으면 줄바꿈한다 */
+  maxCharsPerLine: z.number().int().positive().default(20),
+});
+export type CaptionStyle = z.infer<typeof captionStyleSchema>;
+
+export const effectSettingsSchema = z.object({
+  /** 씬에 기본으로 걸리는 효과 */
+  defaultEffect: z.enum(SCENE_EFFECTS).default("fade"),
+  transitionSec: z.number().default(0.4),
+  /** 정지 이미지에 거는 느린 줌 */
+  kenBurns: z.object({
+    enabled: z.boolean().default(true),
+    scaleFrom: z.number().default(1.0),
+    scaleTo: z.number().default(1.1),
+  }),
+  /** 씬마다 효과를 돌려가며 쓸지 — 같은 효과가 이어지면 지루하다 */
+  rotate: z.boolean().default(true),
+  rotation: z.array(z.enum(SCENE_EFFECTS)).default(["fade", "dissolve", "zoomIn", "zoomOut"]),
+});
+export type EffectSettings = z.infer<typeof effectSettingsSchema>;
+
+// ─────────────────────────────────────────────────────────────
+// 프리셋 (= 스타일). 새 프로젝트의 출발점이다.
 // ─────────────────────────────────────────────────────────────
 
 export const presetSchema = z.object({
@@ -45,81 +187,38 @@ export const presetSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(""),
 
-  /** 화면비 — 해상도는 여기서 파생된다 */
   aspect: z.enum(ASPECTS),
   fps: z.number().int().min(24).max(60).default(30),
-
-  /** 영상 전체 목표 길이(초). 컷 개수는 여기서 역산된다 */
-  targetDurationSec: z.number().int().min(15).max(1800),
-  cutDurationSec: z.object({
-    min: z.number().min(0.5),
-    max: z.number().min(0.5),
-  }),
+  targetDurationSec: z.number().int().min(15).max(3600),
 
   script: z.object({
     language: z.string().default("ko"),
-    /** 화자 설정. 대본 말투를 잠근다 */
     persona: z.string().default(""),
     tone: z.string().default(""),
-    /** 대본 총 글자수 범위 (한국어 기준 분당 약 350자) */
-    charCount: z.object({ min: z.number().int(), max: z.number().int() }),
-    /** 구성 뼈대. 컷은 이 순서를 따라 배치된다 */
-    structure: z.array(z.string()).min(1),
-    /** 이 스타일에서 금지할 것들 */
+    /** 파트 개수 */
+    partCount: z.number().int().min(1).max(12).default(3),
+    /** 자막 한 줄 목표 글자수 — TTS·자막 단위가 된다 */
+    charsPerLine: z.object({ min: z.number().int(), max: z.number().int() }),
     avoid: z.array(z.string()).default([]),
   }),
 
-  image: z.object({
-    provider: z.enum(IMAGE_PROVIDERS).default("manual"),
-    model: z.string().default(""),
-    /** 모든 컷 이미지 프롬프트 뒤에 붙는 화풍 고정 문구 */
-    stylePrompt: z.string().default(""),
-    negativePrompt: z.string().default(""),
-  }),
-
+  intervals: intervalsSchema,
+  image: imageStyleSchema,
   video: z.object({
-    /** 컷 기본 모드. 컷별로 바꿀 수 있다 */
     defaultMode: z.enum(CUT_MODES).default("image"),
     provider: z.enum(VIDEO_PROVIDERS).default("manual"),
     model: z.string().default(""),
-    /** image 모드 컷에 걸리는 켄번즈 줌 (캡컷 키프레임으로 나간다) */
-    kenBurns: z.object({
-      enabled: z.boolean().default(true),
-      /** 1.0 = 원본, 1.12 = 12% 확대 */
-      scaleFrom: z.number().default(1.0),
-      scaleTo: z.number().default(1.12),
-    }),
-    transition: z.object({
-      type: z.string().default("none"),
-      durationSec: z.number().default(0.3),
-    }),
   }),
-
-  tts: z.object({
-    provider: z.enum(TTS_PROVIDERS).default("manual"),
-    voiceId: z.string().default(""),
-    /** 어댑터가 각자 자기 범위로 매핑한다 */
-    speed: z.number().default(1.0),
-    pitch: z.number().default(0),
-  }),
-
-  caption: z.object({
-    enabled: z.boolean().default(true),
-    /** 컷별 화면 자막을 대본에서 뽑을지, 나레이션 전체를 깔지 */
-    source: z.enum(["onScreenText", "narration"]).default("onScreenText"),
-    fontSize: z.number().default(12),
-    position: z.enum(["top", "center", "bottom"]).default("bottom"),
-  }),
+  tts: ttsSettingsSchema,
+  caption: captionStyleSchema,
+  effects: effectSettingsSchema,
 
   createdAt: z.string(),
   updatedAt: z.string(),
-  /** 기본 제공 프리셋은 삭제 대신 복제해서 쓰게 한다 */
   builtin: z.boolean().default(false),
 });
-
 export type Preset = z.infer<typeof presetSchema>;
 
-/** 프리셋 생성/수정 입력 — id·타임스탬프는 서버가 채운다 */
 export const presetInputSchema = presetSchema.omit({
   id: true,
   createdAt: true,
@@ -129,87 +228,175 @@ export const presetInputSchema = presetSchema.omit({
 export type PresetInput = z.infer<typeof presetInputSchema>;
 
 // ─────────────────────────────────────────────────────────────
-// 기획 결과 (Claude가 채우는 부분)
+// 1~2단계: 레퍼런스와 대본
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Claude 구조화 출력용 스키마.
- * 여기에는 기본값·optional을 쓰지 않는다 — 구조화 출력은 모든 필드를
- * 명시적으로 요구할 때 가장 안정적이다.
- */
-export const cutPlanSchema = z.object({
-  /** 프리셋 structure 중 이 컷이 속한 파트 */
-  section: z.string(),
-  /** 성우가 읽을 문장 */
-  narration: z.string(),
-  /** 이 컷의 화면 길이(초) */
-  durationSec: z.number(),
-  /** 이미지 생성기에 그대로 넣을 영문 프롬프트 */
-  imagePrompt: z.string(),
-  /** 사람이 읽는 한국어 이미지 설명 — 왜 이 그림인지 */
-  imageDescription: z.string(),
-  /** video 모드일 때 카메라·피사체 움직임 지시 */
-  motionPrompt: z.string(),
-  /** 화면에 박히는 짧은 자막 문구 */
-  onScreenText: z.string(),
+export const referenceSchema = z.object({
+  url: z.string().url(),
+  title: z.string().default(""),
+  /** 이 링크에서 무엇을 가져올지 */
+  note: z.string().default(""),
+});
+export type Reference = z.infer<typeof referenceSchema>;
+
+export const MAX_REFERENCES = 5;
+
+/** Claude가 만드는 대본의 한 줄 = 자막 한 줄 = TTS 한 덩어리. */
+export const scriptLinePlanSchema = z.object({
+  text: z.string(),
 });
 
-export const planSchema = z.object({
+export const scriptSectionPlanSchema = z.object({
+  kind: z.enum(SECTION_KINDS),
+  /** 파트일 때의 소제목. 나머지는 비워도 된다. */
   title: z.string(),
-  hook: z.string(),
+  lines: z.array(scriptLinePlanSchema),
+});
+
+export const scriptPlanSchema = z.object({
+  title: z.string(),
   summary: z.string(),
   description: z.string(),
   hashtags: z.array(z.string()),
   thumbnailPrompt: z.string(),
-  cuts: z.array(cutPlanSchema),
+  sections: z.array(scriptSectionPlanSchema),
 });
+export type ScriptPlan = z.infer<typeof scriptPlanSchema>;
 
-export type CutPlan = z.infer<typeof cutPlanSchema>;
-export type Plan = z.infer<typeof planSchema>;
+/** 저장되는 자막 라인. 음성이 붙으면 길이가 채워진다. */
+export const scriptLineSchema = z.object({
+  id: z.string(),
+  sectionId: z.string(),
+  /** 전체 대본에서의 통짜 순번 — 자막 번호로 그대로 쓴다 */
+  index: z.number().int(),
+  text: z.string(),
+  audio: z
+    .object({
+      path: z.string(),
+      provider: z.string(),
+      durationSec: z.number(),
+      createdAt: z.string(),
+    })
+    .nullable(),
+});
+export type ScriptLine = z.infer<typeof scriptLineSchema>;
+
+export const scriptSectionSchema = z.object({
+  id: z.string(),
+  kind: z.enum(SECTION_KINDS),
+  title: z.string(),
+  /** 파트 번호 (파트가 아니면 0) */
+  partNumber: z.number().int().default(0),
+  order: z.number().int(),
+});
+export type ScriptSection = z.infer<typeof scriptSectionSchema>;
 
 // ─────────────────────────────────────────────────────────────
-// 프로젝트 (기획 + 에셋 상태)
+// 4~7단계: 씬
 // ─────────────────────────────────────────────────────────────
 
 export const assetRefSchema = z.object({
-  /** data 디렉터리 기준 상대 경로 */
   path: z.string(),
   provider: z.string(),
   createdAt: z.string(),
 });
 export type AssetRef = z.infer<typeof assetRefSchema>;
 
-export const cutSchema = cutPlanSchema.extend({
+/** Claude가 채우는 씬의 내용물. */
+export const scenePlanSchema = z.object({
+  summaryKo: z.string(),
+  /** 화풍 접두·접미를 뺀 **장면 묘사만**. 영문. */
+  prompt: z.string(),
+  motionPrompt: z.string(),
+});
+
+export const sceneSchema = z.object({
   id: z.string(),
+  sectionId: z.string(),
+  /** 전체 씬 통짜 번호 */
   index: z.number().int(),
-  /** 컷별로 image / video 선택 — 프리셋 기본값에서 시작한다 */
+  /** 이 씬이 덮는 자막 라인 번호 범위 (양끝 포함) */
+  lineFrom: z.number().int(),
+  lineTo: z.number().int(),
+  summaryKo: z.string(),
+  prompt: z.string(),
+  motionPrompt: z.string(),
+  /** 라인 음성 길이의 합. 음성 전에는 추정값이다. */
+  durationSec: z.number(),
   mode: z.enum(CUT_MODES),
+  effect: z.enum(SCENE_EFFECTS),
+  /** 화면의 '대체 가능' — 다른 그림으로 바꿔도 무방한 씬 */
+  replaceable: z.boolean(),
   image: assetRefSchema.nullable(),
   video: assetRefSchema.nullable(),
-  audio: assetRefSchema.nullable(),
-  /** 사용자가 컷을 손댔으면 재생성 시 덮어쓰지 않는다 */
+  /** 사용자가 손댄 씬은 다시 만들 때 보존한다 */
   locked: z.boolean(),
 });
-export type Cut = z.infer<typeof cutSchema>;
+export type Scene = z.infer<typeof sceneSchema>;
+
+// ─────────────────────────────────────────────────────────────
+// 프로젝트
+// ─────────────────────────────────────────────────────────────
+
+export const STEPS = [
+  "script",
+  "structure",
+  "tts",
+  "storyboard",
+  "images",
+  "videos",
+  "styling",
+  "export",
+] as const;
+export type Step = (typeof STEPS)[number];
+
+export const STEP_LABEL: Record<Step, string> = {
+  script: "1. 대본",
+  structure: "2. 구조",
+  tts: "3. 음성",
+  storyboard: "4. 스토리보드",
+  images: "5. 이미지",
+  videos: "6. 영상화",
+  styling: "7. 자막·효과",
+  export: "8. 캡컷",
+};
 
 export const projectSchema = z.object({
   id: z.string(),
   topic: z.string(),
-  /** 추가 지시사항 — 이번 영상에만 적용 */
   brief: z.string(),
+  references: z.array(referenceSchema).max(MAX_REFERENCES),
+
   presetId: z.string(),
-  /**
-   * 생성 시점의 프리셋 사본.
-   * 프리셋을 나중에 고쳐도 이미 만든 프로젝트가 흔들리지 않게 한다.
-   */
+  /** 생성 시점의 프리셋 사본. 프리셋을 나중에 고쳐도 이 프로젝트는 안 흔들린다. */
   preset: presetSchema,
-  plan: planSchema.nullable(),
-  cuts: z.array(cutSchema),
-  status: z.enum(["draft", "planned", "generating", "ready"]),
+
+  /** 프로젝트에서 프리셋 값을 덮어쓴 것들 */
+  intervals: intervalsSchema,
+  tts: ttsSettingsSchema,
+  caption: captionStyleSchema,
+  effects: effectSettingsSchema,
+  image: imageStyleSchema,
+
+  title: z.string().default(""),
+  summary: z.string().default(""),
+  description: z.string().default(""),
+  hashtags: z.array(z.string()).default([]),
+  thumbnailPrompt: z.string().default(""),
+
+  sections: z.array(scriptSectionSchema),
+  lines: z.array(scriptLineSchema),
+  scenes: z.array(sceneSchema),
+
+  /** 끝난 단계들 */
+  done: z.array(z.enum(STEPS)).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
-/** 한국어 기준 대략 분당 350자 — 목표 길이에서 대본 분량을 역산한다 */
-export const CHARS_PER_MINUTE_KO = 350;
+/** 한국어 기준 초당 약 5.8자 — 음성 생성 전 길이 추정에 쓴다. */
+export const CHARS_PER_SECOND_KO = 5.8;
+
+export const estimateDurationSec = (text: string): number =>
+  Math.max(0.6, [...text.trim()].length / CHARS_PER_SECOND_KO);

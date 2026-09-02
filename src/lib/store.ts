@@ -14,6 +14,7 @@ import {
   type Preset,
   type PresetInput,
   type Project,
+  type Reference,
 } from "@/lib/types";
 
 /**
@@ -151,17 +152,31 @@ export async function saveProject(project: Project): Promise<Project> {
 export async function createProject(args: {
   topic: string;
   brief: string;
+  references: Reference[];
   preset: Preset;
 }): Promise<Project> {
   const project = projectSchema.parse({
     id: uuid(),
     topic: args.topic,
     brief: args.brief,
+    references: args.references,
     presetId: args.preset.id,
     preset: args.preset,
-    plan: null,
-    cuts: [],
-    status: "draft",
+    // 프리셋 값을 프로젝트로 복사해 온다. 여기서 고쳐도 프리셋은 안 바뀐다.
+    intervals: args.preset.intervals,
+    tts: args.preset.tts,
+    caption: args.preset.caption,
+    effects: args.preset.effects,
+    image: args.preset.image,
+    title: "",
+    summary: "",
+    description: "",
+    hashtags: [],
+    thumbnailPrompt: "",
+    sections: [],
+    lines: [],
+    scenes: [],
+    done: [],
     createdAt: now(),
     updatedAt: now(),
   });

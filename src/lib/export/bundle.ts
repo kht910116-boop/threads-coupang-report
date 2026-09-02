@@ -2,135 +2,38 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ensureDir, exportsDir, resolveAsset } from "@/lib/paths";
 import { slugify } from "@/lib/id";
-import type { Project } from "@/lib/types";
-import { buildCapCutDraft } from "./capcut";
+import { composeImagePrompt, sectionLabel } from "@/lib/engine/prompt";
+import { buildTimeline } from "@/lib/pipeline/timeline";
+import { EFFECT_LABEL, type Project } from "@/lib/types";
+import { buildCapCutDraft, MANUAL_EFFECTS } from "./capcut";
 
 /**
  * 내보내기 번들.
  *
- * 캡컷 드래프트가 안 열려도 작업이 멈추지 않게, 항상 범용 산출물을 같이 낸다.
+ * 캡컷 드래프트가 안 열려도 작업이 멈추지 않게 범용 산출물을 항상 같이 낸다.
  *
- *   <프로젝트명>/
- *     capcut/            ← 캡컷 드래프트 폴더 (통째로 캡컷 프로젝트 폴더에 복사)
- *       draft_content.json
- *       draft_meta_info.json
- *     assets/            ← 컷 순서대로 번호 붙인 이미지·영상·음성
- *     subtitles.srt      ← 어떤 편집기든 읽는 자막
- *     shotlist.csv       ← 컷편집용 샷리스트
- *     script.md          ← 대본 + 이미지 설명 + 스토리보드
- *     plan.json          ← 원본 기획 데이터
+ *   <제목>/
+ *     capcut/         캡컷 드래프트 폴더
+ *     assets/         씬·라인 순서대로 번호 붙인 이미지·영상·음성
+ *     subtitles.srt   타이밍 맞는 자막
+ *     storyboard.csv  씬별 시각·길이·한글요약·프롬프트 (첨부 스토리보드와 같은 구성)
+ *     script.md       대본 + 스토리보드 + 효과 지시
+ *     project.json    원본 데이터
+ *     README.txt      쓰는 법
  */
 
-/** 00:00:03,500 — SRT 타임코드 */
 function srtTime(totalSeconds: number): string {
   const ms = Math.round(totalSeconds * 1000);
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  const s = Math.floor((ms % 60_000) / 1000);
-  const rest = ms % 1000;
   const pad = (n: number, width = 2) => String(n).padStart(width, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(rest, 3)}`;
+  return `${pad(Math.floor(ms / 3_600_000))}:${pad(Math.floor((ms % 3_600_000) / 60_000))}:${pad(
+    Math.floor((ms % 60_000) / 1000),
+  )},${pad(ms % 1000, 3)}`;
 }
 
-function buildSrt(project: Project): string {
-  const useNarration = project.preset.caption.source === "narration";
-  let cursor = 0;
-  const blocks: string[] = [];
-
-  project.cuts.forEach((cut, index) => {
-    const text = useNarration ? cut.narration : cut.onScreenText;
-    const start = cursor;
-    cursor += cut.durationSec;
-    if (!text.trim()) return;
-    blocks.push(
-      `${index + 1}\n${srtTime(start)} --> ${srtTime(cursor)}\n${text.trim()}\n`,
-    );
-  });
-  return blocks.join("\n");
-}
-
-/** 엑셀에서 열어도 안 깨지게 따옴표를 이스케이프한다. */
 const csvCell = (value: string | number): string =>
   `"${String(value).replace(/"/g, '""')}"`;
 
-function buildShotlist(project: Project): string {
-  const header = [
-    "컷", "시작(초)", "길이(초)", "구성", "모드",
-    "나레이션", "화면자막", "이미지설명", "이미지프롬프트", "모션프롬프트",
-    "이미지파일", "영상파일", "음성파일",
-  ];
-
-  let cursor = 0;
-  const rows = project.cuts.map((cut, index) => {
-    const start = cursor;
-    cursor += cut.durationSec;
-    return [
-      index + 1,
-      start.toFixed(2),
-      cut.durationSec.toFixed(2),
-      cut.section,
-      cut.mode,
-      cut.narration,
-      cut.onScreenText,
-      cut.imageDescription,
-      cut.imagePrompt,
-      cut.motionPrompt,
-      cut.image ? path.basename(cut.image.path) : "",
-      cut.video ? path.basename(cut.video.path) : "",
-      cut.audio ? path.basename(cut.audio.path) : "",
-    ].map(csvCell).join(",");
-  });
-
-  // BOM을 붙여야 엑셀이 한글을 UTF-8로 읽는다.
-  return `﻿${header.map(csvCell).join(",")}\n${rows.join("\n")}\n`;
-}
-
-function buildScriptMarkdown(project: Project): string {
-  const { plan, preset } = project;
-  const lines: string[] = [];
-
-  lines.push(`# ${plan?.title ?? project.topic}`, "");
-  lines.push(`- 스타일: **${preset.name}** (${preset.aspect}, ${preset.fps}fps)`);
-  lines.push(`- 주제: ${project.topic}`);
-  if (project.brief.trim()) lines.push(`- 지시사항: ${project.brief.trim()}`);
-  lines.push(
-    `- 컷 ${project.cuts.length}개 / 총 ${project.cuts
-      .reduce((sum, c) => sum + c.durationSec, 0)
-      .toFixed(1)}초`,
-    "",
-  );
-
-  if (plan) {
-    lines.push("## 기획", "");
-    lines.push(`**훅** ${plan.hook}`, "");
-    lines.push(`**한 줄 요약** ${plan.summary}`, "");
-    lines.push("**설명란**", "", plan.description, "");
-    lines.push(`**해시태그** ${plan.hashtags.map((t) => `#${t}`).join(" ")}`, "");
-    lines.push(`**썸네일 프롬프트** \`${plan.thumbnailPrompt}\``, "");
-  }
-
-  lines.push("## 컷 구성", "");
-  let cursor = 0;
-  for (const [index, cut] of project.cuts.entries()) {
-    const start = cursor;
-    cursor += cut.durationSec;
-    lines.push(
-      `### ${index + 1}. ${cut.section} — ${start.toFixed(1)}s → ${cursor.toFixed(1)}s (${cut.durationSec.toFixed(1)}초, ${cut.mode})`,
-      "",
-      `> ${cut.narration}`,
-      "",
-      `- **화면 자막**: ${cut.onScreenText}`,
-      `- **이미지 설명**: ${cut.imageDescription}`,
-      `- **이미지 프롬프트**: \`${cut.imagePrompt}\``,
-      `- **모션 프롬프트**: \`${cut.motionPrompt}\``,
-      "",
-    );
-  }
-  return lines.join("\n");
-}
-
 export interface ExportResult {
-  /** 번들 폴더의 절대 경로 */
   dir: string;
   files: string[];
   warnings: string[];
@@ -139,53 +42,54 @@ export interface ExportResult {
 export async function exportProject(project: Project): Promise<ExportResult> {
   const warnings: string[] = [];
   const files: string[] = [];
+  const timeline = buildTimeline(project);
 
-  const folderName = slugify(project.plan?.title ?? project.topic, project.id);
+  const folderName = slugify(project.title || project.topic, project.id);
   const root = path.join(exportsDir(project.id), folderName);
   const assetsOut = path.join(root, "assets");
   const capcutOut = path.join(root, "capcut");
-
   await ensureDir(assetsOut);
   await ensureDir(capcutOut);
 
-  // ── 에셋을 컷 순서대로 번호 붙여 복사한다 ──
+  // ── 에셋 복사 ──
   // 원본 파일명은 UUID라 순서를 알 수 없다. 편집기에서 바로 쓰려면 번호가 필요하다.
-  const copied = new Map<string, string>(); // 원본 상대경로 → 복사본 절대경로
-  for (const [index, cut] of project.cuts.entries()) {
-    const prefix = String(index + 1).padStart(3, "0");
-    const jobs = [
-      { ref: cut.image, tag: "img" },
-      { ref: cut.video, tag: "vid" },
-      { ref: cut.audio, tag: "aud" },
-    ];
-    for (const { ref, tag } of jobs) {
-      if (!ref) continue;
-      const source = resolveAsset(ref.path);
-      const target = path.join(
-        assetsOut,
-        `${prefix}-${tag}${path.extname(ref.path)}`,
-      );
-      try {
-        await fs.copyFile(source, target);
-        copied.set(ref.path, target);
-        files.push(path.relative(root, target));
-      } catch {
-        warnings.push(`${index + 1}번 컷의 ${tag} 파일을 찾지 못했습니다: ${ref.path}`);
-      }
+  const copied = new Map<string, string>();
+  const copy = async (relative: string, name: string) => {
+    const target = path.join(assetsOut, `${name}${path.extname(relative)}`);
+    try {
+      await fs.copyFile(resolveAsset(relative), target);
+      copied.set(relative, target);
+      files.push(path.relative(root, target));
+    } catch {
+      warnings.push(`파일을 찾지 못했습니다: ${relative}`);
+    }
+  };
+
+  for (const scene of [...project.scenes].sort((a, b) => a.index - b.index)) {
+    const num = String(scene.index + 1).padStart(3, "0");
+    if (scene.image) await copy(scene.image.path, `scene-${num}-img`);
+    if (scene.video) await copy(scene.video.path, `scene-${num}-vid`);
+  }
+  for (const line of [...project.lines].sort((a, b) => a.index - b.index)) {
+    if (line.audio) {
+      await copy(line.audio.path, `line-${String(line.index + 1).padStart(3, "0")}-aud`);
     }
   }
 
-  const missingVisual = project.cuts.filter(
-    (cut) => !(cut.mode === "video" ? cut.video : cut.image),
+  const missingVisual = project.scenes.filter(
+    (s) => !(s.mode === "video" ? s.video : s.image),
   ).length;
   if (missingVisual > 0) {
+    warnings.push(`${missingVisual}개 장면에 이미지/영상이 없어 타임라인에서 빠집니다.`);
+  }
+  const missingAudio = project.lines.filter((l) => !l.audio).length;
+  if (missingAudio > 0) {
     warnings.push(
-      `${missingVisual}개 컷에 아직 이미지/영상이 없어 캡컷 타임라인에서 빠집니다.`,
+      `${missingAudio}개 자막 줄에 음성이 없습니다. 길이는 글자수 추정치로 계산했습니다.`,
     );
   }
 
   // ── 캡컷 드래프트 ──
-  // 드래프트가 참조하는 경로는 번들 안의 복사본이다. 번들 폴더째 옮겨도 살아 있게.
   const draft = buildCapCutDraft(
     project,
     (relative) => copied.get(relative) ?? resolveAsset(relative),
@@ -203,13 +107,68 @@ export async function exportProject(project: Project): Promise<ExportResult> {
   );
   files.push("capcut/draft_content.json", "capcut/draft_meta_info.json");
 
-  // ── 범용 산출물 ──
+  if (draft.manualEffects.length > 0) {
+    warnings.push(
+      `키프레임으로 못 거는 효과가 ${draft.manualEffects.length}개 있습니다 ` +
+        `(${draft.manualEffects.map((e) => `${e.scene}번 ${EFFECT_LABEL[e.effect]}`).join(", ")}). ` +
+        `캡컷에서 직접 걸어주세요 — script.md에 목록이 있습니다.`,
+    );
+  }
+
+  // ── 자막 ──
+  const srt = timeline.lines
+    .map(
+      (line, i) =>
+        `${i + 1}\n${srtTime(line.startSec)} --> ${srtTime(line.endSec)}\n${line.text}\n`,
+    )
+    .join("\n");
+
+  // ── 스토리보드 CSV ── 첨부 파일과 같은 구성 + 타임라인 정보
+  const sectionById = new Map(project.sections.map((s) => [s.id, s]));
+  const sceneTimingById = new Map(timeline.scenes.map((s) => [s.sceneId, s]));
+  const lineByIndex = new Map(project.lines.map((l) => [l.index, l]));
+
+  const csvHeader = [
+    "씬번호", "파트", "시작(초)", "길이(초)", "자막범위", "모드", "효과",
+    "한글요약", "프롬프트", "모션프롬프트", "나레이션", "이미지파일", "영상파일",
+  ];
+  const csvRows = [...project.scenes]
+    .sort((a, b) => a.index - b.index)
+    .map((scene) => {
+      const timing = sceneTimingById.get(scene.id);
+      const section = sectionById.get(scene.sectionId);
+      const narration: string[] = [];
+      for (let i = scene.lineFrom; i <= scene.lineTo; i += 1) {
+        const line = lineByIndex.get(i);
+        if (line) narration.push(line.text);
+      }
+      return [
+        scene.index + 1,
+        section ? sectionLabel(section) : "",
+        (timing?.startSec ?? 0).toFixed(2),
+        (timing?.durationSec ?? scene.durationSec).toFixed(2),
+        `${scene.lineFrom + 1}~${scene.lineTo + 1}`,
+        scene.mode === "video" ? "영상" : "이미지",
+        EFFECT_LABEL[scene.effect],
+        scene.summaryKo,
+        composeImagePrompt(scene.prompt, project.image),
+        scene.motionPrompt,
+        narration.join(" "),
+        scene.image ? path.basename(scene.image.path) : "",
+        scene.video ? path.basename(scene.video.path) : "",
+      ]
+        .map(csvCell)
+        .join(",");
+    });
+  // BOM을 붙여야 엑셀이 한글을 UTF-8로 읽는다.
+  const csv = `﻿${csvHeader.map(csvCell).join(",")}\n${csvRows.join("\n")}\n`;
+
   const plain: Array<[string, string]> = [
-    ["subtitles.srt", buildSrt(project)],
-    ["shotlist.csv", buildShotlist(project)],
-    ["script.md", buildScriptMarkdown(project)],
-    ["plan.json", JSON.stringify({ plan: project.plan, cuts: project.cuts }, null, 2)],
-    ["README.txt", readmeText(folderName)],
+    ["subtitles.srt", srt],
+    ["storyboard.csv", csv],
+    ["script.md", buildScriptMarkdown(project, timeline, draft.manualEffects)],
+    ["project.json", JSON.stringify(project, null, 2)],
+    ["README.txt", readmeText(folderName, project)],
   ];
   for (const [name, body] of plain) {
     await fs.writeFile(path.join(root, name), body, "utf8");
@@ -219,26 +178,97 @@ export async function exportProject(project: Project): Promise<ExportResult> {
   return { dir: root, files, warnings };
 }
 
-function readmeText(folderName: string): string {
+function buildScriptMarkdown(
+  project: Project,
+  timeline: ReturnType<typeof buildTimeline>,
+  manualEffects: Array<{ scene: number; effect: Project["scenes"][number]["effect"] }>,
+): string {
+  const lines: string[] = [];
+  const sectionById = new Map(project.sections.map((s) => [s.id, s]));
+  const sceneTimingById = new Map(timeline.scenes.map((s) => [s.sceneId, s]));
+  const lineByIndex = new Map(project.lines.map((l) => [l.index, l]));
+
+  lines.push(`# ${project.title || project.topic}`, "");
+  lines.push(`- 스타일: **${project.preset.name}** (${project.preset.aspect}, ${project.preset.fps}fps)`);
+  lines.push(`- 길이: ${timeline.totalSec.toFixed(1)}초 (목표 ${project.preset.targetDurationSec}초)`);
+  lines.push(`- 자막 ${project.lines.length}줄 / 장면 ${project.scenes.length}개`);
+  if (project.references.length > 0) {
+    lines.push("", "**레퍼런스**", ...project.references.map((r) => `- ${r.url}`));
+  }
+  lines.push("", `**요약** ${project.summary}`, "");
+  lines.push("**설명란**", "", project.description, "");
+  lines.push(`**해시태그** ${project.hashtags.map((t) => `#${t}`).join(" ")}`, "");
+  lines.push(`**썸네일 프롬프트** \`${project.thumbnailPrompt}\``, "");
+
+  if (manualEffects.length > 0) {
+    lines.push(
+      "## 캡컷에서 직접 걸 효과",
+      "",
+      "아래는 키프레임으로 표현할 수 없어 드래프트에 안 들어갔습니다. 캡컷에서 직접 걸어주세요.",
+      "",
+      ...manualEffects.map((e) => `- ${e.scene}번 장면: **${EFFECT_LABEL[e.effect]}**`),
+      "",
+    );
+  }
+
+  lines.push("## 장면", "");
+  for (const scene of [...project.scenes].sort((a, b) => a.index - b.index)) {
+    const timing = sceneTimingById.get(scene.id);
+    const section = sectionById.get(scene.sectionId);
+    const narration: string[] = [];
+    for (let i = scene.lineFrom; i <= scene.lineTo; i += 1) {
+      const line = lineByIndex.get(i);
+      if (line) narration.push(line.text);
+    }
+
+    const start = timing?.startSec ?? 0;
+    const duration = timing?.durationSec ?? scene.durationSec;
+    lines.push(
+      `### 씬 ${scene.index + 1} · ${section ? sectionLabel(section) : ""} · ` +
+        `${start.toFixed(1)}s → ${(start + duration).toFixed(1)}s (${duration.toFixed(1)}초)`,
+      "",
+      `- 자막 ${scene.lineFrom + 1}~${scene.lineTo + 1} · ${scene.mode === "video" ? "AI 영상" : "이미지"} · 효과 ${EFFECT_LABEL[scene.effect]}`,
+      "",
+      `> ${narration.join(" ")}`,
+      "",
+      `**${scene.summaryKo}**`,
+      "",
+      "```",
+      composeImagePrompt(scene.prompt, project.image),
+      "```",
+      "",
+    );
+    if (scene.mode === "video") {
+      lines.push(`모션: \`${scene.motionPrompt}\``, "");
+    }
+  }
+  return lines.join("\n");
+}
+
+function readmeText(folderName: string, project: Project): string {
   return [
     "이 폴더 쓰는 법",
     "",
     "[캡컷으로 바로 열기]",
-    "  capcut/ 폴더를 통째로 캡컷 프로젝트 폴더 안에 복사한 뒤 캡컷을 재시작하세요.",
+    "  capcut/ 폴더를 통째로 캡컷 프로젝트 폴더에 복사하고 캡컷을 재시작하세요.",
     "    macOS : ~/Movies/CapCut/User Data/Projects/com.lveditor.draft/",
     "    Windows: %LOCALAPPDATA%\\CapCut\\User Data\\Projects\\com.lveditor.draft\\",
-    `  폴더 이름은 그대로 두면 프로젝트 목록에 '${folderName}'로 뜹니다.`,
+    `  프로젝트 목록에 '${folderName}'로 뜹니다.`,
     "",
-    "  ⚠️ 캡컷은 버전마다 드래프트 형식이 달라서 안 열릴 수 있습니다.",
-    "     그럴 땐 아래 방법으로 하세요 — 결과물은 같습니다.",
+    "  ⚠️ 캡컷은 버전마다 드래프트 형식이 달라 안 열릴 수 있습니다.",
+    "     그럴 땐 아래로 하세요 — 결과물은 같습니다.",
     "",
-    "[수동으로 편집기에 올리기]",
-    "  1. assets/ 안의 파일은 컷 순서대로 001, 002... 번호가 붙어 있습니다.",
-    "     번호 순서대로 타임라인에 올리면 됩니다.",
+    "[수동으로 올리기]",
+    "  1. assets/ 파일은 scene-001, scene-002 … line-001 … 순서로 번호가 붙어 있습니다.",
     "  2. subtitles.srt 를 자막 트랙으로 불러오면 타이밍이 맞습니다.",
-    "  3. shotlist.csv 에 컷별 시작 시각·길이·프롬프트가 다 들어 있습니다.",
+    "  3. storyboard.csv 에 씬별 시작 시각·길이·효과·프롬프트가 다 있습니다.",
+    "",
+    "[자막 폰트]",
+    `  이 프로젝트의 자막 폰트는 '${project.caption.fontFamily}' 입니다.`,
+    "  캡컷에 그 폰트가 설치돼 있어야 그대로 나옵니다.",
+    "  미리캔버스·캔바에서 쓰던 폰트라면 로컬에 설치한 뒤 캡컷을 재시작하세요.",
     "",
     "[대본만 볼 때]",
-    "  script.md — 대본, 컷별 이미지 설명, 스토리보드가 한 파일에 있습니다.",
+    "  script.md — 대본, 장면별 한글 요약, 이미지 프롬프트, 직접 걸 효과 목록.",
   ].join("\n");
 }

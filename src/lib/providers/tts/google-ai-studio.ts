@@ -29,11 +29,11 @@ export const googleAiStudio: TtsProvider = {
   envKeys: ["GOOGLE_AI_STUDIO_API_KEY", "GEMINI_TTS_MODEL"],
   isConfigured: () => Boolean(process.env.GOOGLE_AI_STUDIO_API_KEY),
 
-  async synthesize({ text, voiceId, speed }) {
+  async synthesize({ text, voiceId, speed, model }) {
     const voiceName = voiceId || "Kore";
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL()}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${model || MODEL()}:generateContent`,
       {
         method: "POST",
         headers: {

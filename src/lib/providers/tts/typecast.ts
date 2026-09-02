@@ -72,7 +72,7 @@ export const typecast: TtsProvider = {
   envKeys: ["TYPECAST_API_KEY", "TYPECAST_API_BASE"],
   isConfigured: () => Boolean(process.env.TYPECAST_API_KEY),
 
-  async synthesize({ text, voiceId, speed, language }) {
+  async synthesize({ text, voiceId, speed, language, model }) {
     if (!voiceId) throw new Error("타입캐스트: voiceId(actor id)가 비어 있습니다.");
 
     const response = await fetch(`${base()}/v1/text-to-speech`, {
@@ -83,7 +83,7 @@ export const typecast: TtsProvider = {
         actor_id: voiceId, // 구버전 필드명
         text,
         lang: language === "ko" ? "auto" : language,
-        model: process.env.TYPECAST_MODEL ?? "ssfm-v21",
+        model: model || process.env.TYPECAST_MODEL || "ssfm-v21",
         tempo: speed,
         volume: 100,
         xapi_hd: true,

@@ -9,20 +9,14 @@ import type { Preset } from "@/lib/types";
 interface ProjectRow {
   id: string;
   topic: string;
-  title: string | null;
+  title: string;
   presetName: string;
   aspect: string;
-  cutCount: number;
-  status: string;
+  lineCount: number;
+  sceneCount: number;
+  done: string[];
   updatedAt: string;
 }
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "기획 전",
-  planned: "기획 완료",
-  generating: "에셋 생성 중",
-  ready: "내보내기 완료",
-};
 
 export default function Home() {
   const router = useRouter();
@@ -133,8 +127,9 @@ export default function Home() {
               <tr>
                 <th>제목</th>
                 <th>스타일</th>
-                <th>컷</th>
-                <th>상태</th>
+                <th>자막</th>
+                <th>장면</th>
+                <th>진행</th>
                 <th>수정</th>
               </tr>
             </thead>
@@ -143,17 +138,16 @@ export default function Home() {
                 <tr key={project.id}>
                   <td>
                     <Link href={`/project/${project.id}`}>
-                      {project.title ?? project.topic}
+                      {project.title || project.topic}
                     </Link>
                   </td>
                   <td className="dim">
                     {project.presetName} · {project.aspect}
                   </td>
-                  <td className="dim">{project.cutCount}</td>
+                  <td className="dim">{project.lineCount}</td>
+                  <td className="dim">{project.sceneCount}</td>
                   <td>
-                    <span className="pill">
-                      {STATUS_LABEL[project.status] ?? project.status}
-                    </span>
+                    <span className="pill">{project.done.length}/8 단계</span>
                   </td>
                   <td className="dim">
                     {new Date(project.updatedAt).toLocaleString("ko-KR")}

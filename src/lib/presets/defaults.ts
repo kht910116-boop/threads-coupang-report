@@ -1,146 +1,196 @@
 import type { Preset } from "@/lib/types";
 
 /**
- * 기본 제공 프리셋.
+ * 기본 프리셋.
  *
- * 이건 시작점이지 정답이 아니다. UI에서 복제해서 고치거나 새로 만들면
- * data/presets.json에 그대로 쌓인다. 여기 배열에 항목을 추가하면
- * 다음 실행 때 새 기본 프리셋으로 합류한다 (기존 것은 덮어쓰지 않는다).
+ * 시작점이지 정답이 아니다. 화면에서 복제·수정·추가하면 data/presets.json에 쌓인다.
+ * 여기 배열에 항목을 더하면 다음 실행 때 새 기본 프리셋으로 합류한다
+ * (이미 있는 id는 덮어쓰지 않는다).
  */
 
 type Seed = Omit<Preset, "id" | "createdAt" | "updatedAt" | "builtin">;
 
+/** 모든 이미지 프롬프트 뒤에 공통으로 붙는 문구. */
+const COMMON_SUFFIX =
+  "Single still frame, no panels, no overlaid subtitles or title cards. No watermark. If any text appears, it must be Korean only.";
+
 export const DEFAULT_PRESETS: Array<{ id: string } & Seed> = [
   {
-    id: "shorts-issue",
-    name: "쇼츠 · 이슈 훅형",
-    description: "세로 45초. 첫 2초에 결론부터 던지고 빠르게 몰아치는 컷.",
-    aspect: "9:16",
-    fps: 30,
-    targetDurationSec: 45,
-    cutDurationSec: { min: 1.5, max: 3 },
-    script: {
-      language: "ko",
-      persona: "빠르게 핵심만 찌르는 이슈 채널 진행자",
-      tone: "단정적이고 빠름. 반말 아님, 짧은 존댓말. 문장은 20자 이내로 끊는다.",
-      charCount: { min: 240, max: 320 },
-      structure: ["훅", "상황", "핵심", "반전", "마무리"],
-      avoid: ["장황한 도입", "'오늘은 ~에 대해 알아보겠습니다' 류 상투구", "출처 불명 수치"],
-    },
-    image: {
-      provider: "manual",
-      model: "",
-      stylePrompt:
-        "high-contrast editorial photo, dramatic side lighting, shallow depth of field, muted teal and amber grade, cinematic 9:16 vertical composition, subject centered with generous headroom for on-screen text",
-      negativePrompt: "text, watermark, logo, distorted hands, extra fingers, blurry",
-    },
-    video: {
-      defaultMode: "image",
-      provider: "manual",
-      model: "",
-      kenBurns: { enabled: true, scaleFrom: 1.0, scaleTo: 1.14 },
-      transition: { type: "none", durationSec: 0 },
-    },
-    tts: { provider: "manual", voiceId: "", speed: 1.08, pitch: 0 },
-    caption: { enabled: true, source: "onScreenText", fontSize: 14, position: "center" },
-  },
-  {
-    id: "info-longform",
-    name: "정보 · 롱폼 해설",
-    description: "가로 3분. 차분한 해설 톤, 컷이 길고 자료 화면이 많다.",
+    id: "whiteboard-doc",
+    name: "화이트보드 · 다큐 해설",
+    description:
+      "손그림 스케치 화풍의 정보 해설. 한 장면에 강조색 하나만 살려 시선을 끈다.",
     aspect: "16:9",
     fps: 30,
     targetDurationSec: 180,
-    cutDurationSec: { min: 4, max: 8 },
     script: {
       language: "ko",
       persona: "근거를 먼저 대고 결론을 내리는 해설자",
-      tone: "차분한 존댓말. 한 문단에 한 가지 논점만.",
-      charCount: { min: 950, max: 1150 },
-      structure: ["도입", "배경", "쟁점1", "쟁점2", "반론", "정리", "제언"],
-      avoid: ["단정적 예측", "감정적 수사", "근거 없는 수치"],
+      tone: "차분한 존댓말. 한 문장에 한 가지만.",
+      partCount: 4,
+      charsPerLine: { min: 18, max: 32 },
+      avoid: ["단정적 예측", "감정적 수사", "출처 불명 수치"],
+    },
+    intervals: {
+      hookIntro: { min: 8, max: 13 },
+      part: { min: 12, max: 22 },
+      closing: { min: 12, max: 22 },
     },
     image: {
       provider: "manual",
       model: "",
-      stylePrompt:
-        "clean documentary still, natural daylight, neutral color grade, 16:9 wide composition, journalistic framing, no on-image text",
-      negativePrompt: "text, watermark, cartoon, oversaturated, distorted anatomy",
+      prefix:
+        "Hand-drawn minimalist sketch style, whiteboard animation aesthetic, clean ink linework with soft watercolor wash, muted sepia and earth-tone palette, warm aged paper texture background, simple stick-figure characters with round heads, dot eyes and contextual clothing, detailed architectural backgrounds in loose watercolor with isometric perspective, editorial documentary illustration feel, one key focal object per scene in vivid saturated color as a dramatic spotlight against the muted sepia",
+      suffix: COMMON_SUFFIX,
+      negativePrompt: "text, watermark, photorealistic, cluttered composition",
     },
-    video: {
-      defaultMode: "image",
+    video: { defaultMode: "image", provider: "manual", model: "" },
+    tts: {
       provider: "manual",
       model: "",
-      kenBurns: { enabled: true, scaleFrom: 1.0, scaleTo: 1.08 },
-      transition: { type: "fade", durationSec: 0.4 },
+      voiceId: "",
+      speed: 1.0,
+      pitch: 0,
+      leadSilenceMs: 400,
+      tailSilenceMs: 700,
+      gapMs: 200,
+      sectionGapMs: 500,
     },
-    tts: { provider: "manual", voiceId: "", speed: 1.0, pitch: 0 },
-    caption: { enabled: true, source: "narration", fontSize: 10, position: "bottom" },
+    caption: {
+      enabled: true,
+      fontFamily: "Pretendard",
+      fontSize: 10,
+      color: "#FFFFFF",
+      strokeColor: "#000000",
+      strokeWidth: 0.08,
+      position: "bottom",
+      marginRatio: 0.1,
+      maxCharsPerLine: 24,
+    },
+    effects: {
+      defaultEffect: "fade",
+      transitionSec: 0.45,
+      kenBurns: { enabled: true, scaleFrom: 1.0, scaleTo: 1.08 },
+      rotate: true,
+      rotation: ["fade", "dissolve", "zoomIn", "panRight", "zoomOut", "panLeft"],
+    },
+  },
+  {
+    id: "shorts-issue",
+    name: "쇼츠 · 이슈 훅형",
+    description: "세로 45초. 첫 2초에 결론부터 던지고 빠르게 몰아친다.",
+    aspect: "9:16",
+    fps: 30,
+    targetDurationSec: 45,
+    script: {
+      language: "ko",
+      persona: "빠르게 핵심만 찌르는 이슈 채널 진행자",
+      tone: "단정적이고 빠름. 짧은 존댓말.",
+      partCount: 3,
+      charsPerLine: { min: 10, max: 20 },
+      avoid: ["장황한 도입", "'오늘은 ~에 대해 알아보겠습니다' 류 상투구"],
+    },
+    intervals: {
+      hookIntro: { min: 2, max: 4 },
+      part: { min: 3, max: 6 },
+      closing: { min: 3, max: 6 },
+    },
+    image: {
+      provider: "manual",
+      model: "",
+      prefix:
+        "High-contrast editorial photograph, dramatic side lighting, shallow depth of field, muted teal and amber color grade, cinematic vertical composition with generous headroom for on-screen text",
+      suffix: COMMON_SUFFIX,
+      negativePrompt: "text, watermark, distorted hands, extra fingers, blurry",
+    },
+    video: { defaultMode: "image", provider: "manual", model: "" },
+    tts: {
+      provider: "manual",
+      model: "",
+      voiceId: "",
+      speed: 1.08,
+      pitch: 0,
+      leadSilenceMs: 150,
+      tailSilenceMs: 400,
+      gapMs: 100,
+      sectionGapMs: 250,
+    },
+    caption: {
+      enabled: true,
+      fontFamily: "Pretendard",
+      fontSize: 15,
+      color: "#FFFFFF",
+      strokeColor: "#000000",
+      strokeWidth: 0.1,
+      position: "center",
+      marginRatio: 0.14,
+      maxCharsPerLine: 14,
+    },
+    effects: {
+      defaultEffect: "none",
+      transitionSec: 0.2,
+      kenBurns: { enabled: true, scaleFrom: 1.0, scaleTo: 1.14 },
+      rotate: true,
+      rotation: ["none", "zoomIn", "blackFlash", "zoomOut"],
+    },
   },
   {
     id: "emotional-vlog",
     name: "감성 · 브이로그",
-    description: "세로 60초. 느린 호흡, 여백 많은 화면, 속삭이는 톤.",
+    description: "세로 60초. 느린 호흡, 여백 많은 화면, 담담한 톤.",
     aspect: "9:16",
     fps: 30,
     targetDurationSec: 60,
-    cutDurationSec: { min: 3, max: 6 },
     script: {
       language: "ko",
       persona: "혼잣말하듯 담담하게 이야기하는 화자",
-      tone: "느린 존댓말. 여백을 두고 짧게 끊는다. 형용사보다 장면을 말한다.",
-      charCount: { min: 280, max: 360 },
-      structure: ["장면", "감정", "기억", "전환", "여운"],
+      tone: "느린 존댓말. 형용사보다 장면을 말한다.",
+      partCount: 3,
+      charsPerLine: { min: 12, max: 24 },
       avoid: ["과장된 감탄", "설명조", "정보 나열"],
     },
-    image: {
-      provider: "manual",
-      model: "",
-      stylePrompt:
-        "film photograph, 35mm grain, soft diffused window light, desaturated pastel palette, generous negative space, quiet everyday scene, vertical 9:16",
-      negativePrompt: "text, watermark, harsh flash, crowded composition, people looking at camera",
-    },
-    video: {
-      defaultMode: "image",
-      provider: "manual",
-      model: "",
-      kenBurns: { enabled: true, scaleFrom: 1.05, scaleTo: 1.0 },
-      transition: { type: "fade", durationSec: 0.6 },
-    },
-    tts: { provider: "manual", voiceId: "", speed: 0.92, pitch: -1 },
-    caption: { enabled: true, source: "onScreenText", fontSize: 10, position: "bottom" },
-  },
-  {
-    id: "anim-storytelling",
-    name: "애니메이션 · 스토리텔링",
-    description: "세로 90초. 일러스트 화풍으로 이야기를 끌고 간다.",
-    aspect: "9:16",
-    fps: 30,
-    targetDurationSec: 90,
-    cutDurationSec: { min: 2.5, max: 5 },
-    script: {
-      language: "ko",
-      persona: "이야기를 들려주는 내레이터",
-      tone: "존댓말 구어체. 인물과 사건 중심. 현재형으로 끌고 간다.",
-      charCount: { min: 480, max: 580 },
-      structure: ["발단", "전개", "위기", "절정", "결말"],
-      avoid: ["교훈 설교", "요약 남발", "시점 혼동"],
+    intervals: {
+      hookIntro: { min: 4, max: 7 },
+      part: { min: 6, max: 12 },
+      closing: { min: 6, max: 12 },
     },
     image: {
       provider: "manual",
       model: "",
-      stylePrompt:
-        "2D animation still, clean vector-ish linework, flat cel shading, limited 5-color palette, expressive character silhouettes, vertical 9:16 storyboard frame",
-      negativePrompt: "text, watermark, photorealistic, 3d render, cluttered background",
+      prefix:
+        "35mm film photograph, visible grain, soft diffused window light, desaturated pastel palette, generous negative space, quiet everyday scene, natural candid framing",
+      suffix: COMMON_SUFFIX,
+      negativePrompt: "text, watermark, harsh flash, crowded composition",
     },
-    video: {
-      defaultMode: "image",
+    video: { defaultMode: "image", provider: "manual", model: "" },
+    tts: {
       provider: "manual",
       model: "",
-      kenBurns: { enabled: true, scaleFrom: 1.0, scaleTo: 1.1 },
-      transition: { type: "fade", durationSec: 0.25 },
+      voiceId: "",
+      speed: 0.92,
+      pitch: -1,
+      leadSilenceMs: 600,
+      tailSilenceMs: 900,
+      gapMs: 320,
+      sectionGapMs: 700,
     },
-    tts: { provider: "manual", voiceId: "", speed: 1.0, pitch: 0 },
-    caption: { enabled: true, source: "onScreenText", fontSize: 12, position: "bottom" },
+    caption: {
+      enabled: true,
+      fontFamily: "Pretendard",
+      fontSize: 10,
+      color: "#FFFFFF",
+      strokeColor: "#000000",
+      strokeWidth: 0.06,
+      position: "bottom",
+      marginRatio: 0.12,
+      maxCharsPerLine: 18,
+    },
+    effects: {
+      defaultEffect: "dissolve",
+      transitionSec: 0.7,
+      kenBurns: { enabled: true, scaleFrom: 1.06, scaleTo: 1.0 },
+      rotate: true,
+      rotation: ["dissolve", "fade", "blur", "zoomOut"],
+    },
   },
 ];

@@ -1,11 +1,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
-import { z } from "zod";
-import { planSchema, type Plan } from "@/lib/types";
-import { planUserPrompt, systemPrompt } from "./prompt";
-import { extractJson } from "./json";
 import type { AgentConfig } from "./agents";
-import type { PlannerEngine } from "./types";
+import { flattenHistory, schemaInstruction, type Engine } from "./types";
 
 /**
  * 구독제 CLI 에이전트 러너.
@@ -110,22 +106,11 @@ function pluck(value: unknown, dotPath: string): unknown {
     );
 }
 
-/** 스키마 플래그가 없는 CLI에는 스키마를 말로 시킨다. */
-function schemaInstruction(schema: unknown): string {
-  return [
-    "",
-    "## 출력 형식 (반드시 지킬 것)",
-    "설명·인사·코드펜스 없이 아래 JSON Schema를 만족하는 **JSON 객체 하나만** 출력한다.",
-    "```",
-    JSON.stringify(schema),
-    "```",
-  ].join("\n");
-}
-
-export function makeCliEngine(agent: AgentConfig): PlannerEngine {
+export function makeCliEngine(agent: AgentConfig): Engine {
   return {
-    id: "cli",
+    id: agent.id,
     label: agent.label,
+    kind: "cli",
 
     async isAvailable() {
       try {
@@ -140,38 +125,31 @@ export function makeCliEngine(agent: AgentConfig): PlannerEngine {
       return `\`${agent.command}\`를 실행할 수 없습니다. 설치돼 있는지, PATH에 있는지, 로그인했는지 확인하세요.`;
     },
 
-    async generatePlan({ preset, topic, brief }): Promise<Plan> {
-      // CLI들이 $schema 키가 붙어 있으면 스키마를 거부하는 경우가 있다.
-      const { $schema: _drop, ...schema } = z.toJSONSchema(planSchema) as Record<
-        string,
-        unknown
-      >;
+    async complete({ system, user, schema, history }): Promise<string> {
+      let finalSystem = system;
+      let finalUser = flattenHistory(history, user);
 
-      let system = systemPrompt(preset);
-      let user = planUserPrompt(topic, brief);
-
-      if (!agent.supportsSchema) {
-        system += schemaInstruction(schema);
+      // 스키마 플래그를 못 받는 CLI에는 스키마를 글로 시킨다.
+      if (schema && !agent.supportsSchema) {
+        finalSystem += schemaInstruction(schema);
       }
-      // 시스템 프롬프트를 받는 자리가 없는 CLI는 프롬프트 하나로 합쳐 보낸다.
-      const takesSystem = agent.args.some((a) => a.includes("{{system}}"));
-      if (!takesSystem) {
-        user = `${system}\n\n---\n\n${user}`;
+      // 시스템 프롬프트 자리가 없는 CLI는 프롬프트 하나로 합쳐 보낸다.
+      if (!agent.args.some((a) => a.includes("{{system}}"))) {
+        finalUser = `${finalSystem}\n\n---\n\n${finalUser}`;
       }
 
-      const values: Record<string, string> = {
-        system,
-        user,
-        schema: agent.supportsSchema ? JSON.stringify(schema) : "",
-      };
-      const args = buildArgs(agent.args, values);
+      const args = buildArgs(agent.args, {
+        system: finalSystem,
+        user: finalUser,
+        schema: schema && agent.supportsSchema ? JSON.stringify(schema) : "",
+      });
 
       let result: RunResult;
       try {
         result = await run(
           agent.command,
           args,
-          agent.promptVia === "stdin" ? user : "",
+          agent.promptVia === "stdin" ? finalUser : "",
           agent.timeoutMs,
         );
       } catch (error) {
@@ -190,26 +168,21 @@ export function makeCliEngine(agent: AgentConfig): PlannerEngine {
       }
 
       // 봉투가 있으면 벗기고, 없으면 stdout 자체가 답이다.
-      let answer: string;
-      if (agent.resultPath) {
-        const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
-        if (envelope.is_error === true) {
-          throw new Error(
-            `${agent.label}이(가) 오류를 냈습니다: ${String(pluck(envelope, agent.resultPath) ?? "")}`,
-          );
-        }
-        const plucked = pluck(envelope, agent.resultPath);
-        if (typeof plucked !== "string") {
-          throw new Error(
-            `${agent.label} 응답의 "${agent.resultPath}" 경로에서 문자열을 찾지 못했습니다. 설정의 resultPath를 확인하세요.`,
-          );
-        }
-        answer = plucked;
-      } else {
-        answer = result.stdout;
-      }
+      if (!agent.resultPath) return result.stdout;
 
-      return planSchema.parse(extractJson(answer));
+      const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
+      if (envelope.is_error === true) {
+        throw new Error(
+          `${agent.label}이(가) 오류를 냈습니다: ${String(pluck(envelope, agent.resultPath) ?? "")}`,
+        );
+      }
+      const plucked = pluck(envelope, agent.resultPath);
+      if (typeof plucked !== "string") {
+        throw new Error(
+          `${agent.label} 응답의 "${agent.resultPath}" 경로에서 문자열을 찾지 못했습니다. 설정의 resultPath를 확인하세요.`,
+        );
+      }
+      return plucked;
     },
   };
 }

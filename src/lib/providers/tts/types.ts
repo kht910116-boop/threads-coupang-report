@@ -3,6 +3,8 @@ import type { TtsProviderId } from "@/lib/types";
 export interface SynthesizeArgs {
   text: string;
   voiceId: string;
+  /** 서비스 안의 세부 모델. 비우면 어댑터의 기본값을 쓴다. */
+  model: string;
   /** 1.0 = 보통. 각 어댑터가 자기 서비스 범위로 매핑한다. */
   speed: number;
   /** 반음 단위. 지원하지 않는 서비스는 무시한다. */

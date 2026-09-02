@@ -1,31 +1,64 @@
 import { z } from "zod";
 import { handle, notFound } from "@/lib/http";
 import { deleteProject, getProject, saveProject } from "@/lib/store";
-import { CUT_MODES } from "@/lib/types";
+import { refreshSceneDurations } from "@/lib/pipeline/generate";
+import {
+  captionStyleSchema,
+  effectSettingsSchema,
+  imageStyleSchema,
+  intervalsSchema,
+  referenceSchema,
+  SCENE_EFFECTS,
+  CUT_MODES,
+  MAX_REFERENCES,
+  STEPS,
+  ttsSettingsSchema,
+} from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
 export const dynamic = "force-dynamic";
 
-/** 컷 손질 — 사용자가 고친 필드만 덮어쓴다. */
+/** 손질 — 준 필드만 덮어쓴다. */
 const patchSchema = z.object({
-  cuts: z
+  topic: z.string().optional(),
+  brief: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  references: z.array(referenceSchema).max(MAX_REFERENCES).optional(),
+
+  intervals: intervalsSchema.optional(),
+  tts: ttsSettingsSchema.optional(),
+  caption: captionStyleSchema.optional(),
+  effects: effectSettingsSchema.optional(),
+  image: imageStyleSchema.optional(),
+
+  lines: z
+    .array(z.object({ id: z.string(), text: z.string() }))
+    .optional(),
+  scenes: z
     .array(
       z.object({
         id: z.string(),
-        narration: z.string().optional(),
-        onScreenText: z.string().optional(),
-        imagePrompt: z.string().optional(),
-        imageDescription: z.string().optional(),
+        summaryKo: z.string().optional(),
+        prompt: z.string().optional(),
         motionPrompt: z.string().optional(),
-        durationSec: z.number().positive().optional(),
         mode: z.enum(CUT_MODES).optional(),
+        effect: z.enum(SCENE_EFFECTS).optional(),
+        replaceable: z.boolean().optional(),
         locked: z.boolean().optional(),
       }),
     )
     .optional(),
-  brief: z.string().optional(),
+  done: z.array(z.enum(STEPS)).optional(),
 });
+
+/** undefined가 값을 덮어쓰지 않게 걸러낸다. */
+function defined<T extends object>(source: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
 
 export async function GET(_request: Request, { params }: Params) {
   const { id } = await params;
@@ -41,22 +74,42 @@ export async function PATCH(request: Request, { params }: Params) {
     if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
 
     const patch = patchSchema.parse(await request.json());
-    const edits = new Map((patch.cuts ?? []).map((c) => [c.id, c]));
+    const lineEdits = new Map((patch.lines ?? []).map((l) => [l.id, l]));
+    const sceneEdits = new Map((patch.scenes ?? []).map((s) => [s.id, s]));
 
-    return saveProject({
+    let next = {
       ...project,
-      brief: patch.brief ?? project.brief,
-      cuts: project.cuts.map((cut) => {
-        const edit = edits.get(cut.id);
-        if (!edit) return cut;
-        const { id: _ignored, ...fields } = edit;
-        // undefined 필드가 값을 덮어쓰지 않게 걸러낸다.
-        const defined = Object.fromEntries(
-          Object.entries(fields).filter(([, v]) => v !== undefined),
-        );
-        return { ...cut, ...defined };
+      ...defined({
+        topic: patch.topic,
+        brief: patch.brief,
+        title: patch.title,
+        description: patch.description,
+        references: patch.references,
+        intervals: patch.intervals,
+        tts: patch.tts,
+        caption: patch.caption,
+        effects: patch.effects,
+        image: patch.image,
+        done: patch.done,
       }),
-    });
+      lines: project.lines.map((line) => {
+        const edit = lineEdits.get(line.id);
+        // 글이 바뀌면 기존 음성은 더 이상 맞지 않는다.
+        if (!edit || edit.text === line.text) return line;
+        return { ...line, text: edit.text, audio: null };
+      }),
+      scenes: project.scenes.map((scene) => {
+        const edit = sceneEdits.get(scene.id);
+        if (!edit) return scene;
+        const { id: _ignored, ...fields } = edit;
+        return { ...scene, ...defined(fields) };
+      }),
+    };
+
+    // 자막을 고쳤으면 씬 길이도 다시 맞춘다.
+    if (patch.lines) next = { ...next, scenes: refreshSceneDurations(next) };
+
+    return saveProject(next);
   });
 }
 

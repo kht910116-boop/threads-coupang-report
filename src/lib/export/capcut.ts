@@ -1,18 +1,24 @@
 import { upperUuid } from "@/lib/id";
-import { ASPECT_RESOLUTION, type Cut, type Project } from "@/lib/types";
+import { buildTimeline, type Timeline } from "@/lib/pipeline/timeline";
+import { ASPECT_RESOLUTION, type Project, type SceneEffect } from "@/lib/types";
 
 /**
  * 캡컷 드래프트 생성기.
  *
  * ⚠️ 읽고 시작할 것
  * 캡컷의 draft_content.json 스키마는 공개 문서가 없고 앱 버전마다 달라진다.
- * 여기 있는 구조는 알려진 형태를 따라 만든 **최선의 추정**이고, 설치된
- * 캡컷 버전에 따라 안 열릴 수 있다. 그래서 내보내기는 항상 두 벌을 만든다.
+ * 여기 구조는 알려진 형태를 따른 **최선의 추정**이고, 설치된 캡컷 버전에 따라
+ * 안 열릴 수 있다. 그래서 내보내기는 항상 범용 번들(에셋+SRT+샷리스트)을 같이 낸다.
  *
- *   1) 이 드래프트 (열리면 컷·자막·음성이 타임라인에 그대로 얹혀 있다)
- *   2) bundle.ts의 범용 번들 (에셋 + SRT + 샷리스트 — 어떤 편집기에서든 통한다)
- *
- * 드래프트가 안 열려도 2번으로 작업은 이어진다.
+ * 효과 처리 방침:
+ *   캡컷의 전환(transition)·효과(effect)는 캡컷 내부 라이브러리 id를 알아야 붙는다.
+ *   그 id를 확인할 방법이 없어서, **키프레임으로 표현할 수 있는 것만** 실제로 건다:
+ *     페이드·디졸브 → 투명도 키프레임
+ *     줌인·줌아웃   → 배율 키프레임
+ *     좌우 팬       → 위치 키프레임
+ *     블랙/화이트 플래시 → 짧은 투명도 급변
+ *   블러·글리치·오버레이는 키프레임으로 못 만든다. 타임라인에는 안 걸고
+ *   샷리스트에 "수동으로 걸 것"으로 남긴다.
  *
  * 시간 단위는 전부 마이크로초(µs)다.
  */
@@ -20,7 +26,9 @@ import { ASPECT_RESOLUTION, type Cut, type Project } from "@/lib/types";
 const US = 1_000_000;
 const us = (seconds: number) => Math.round(seconds * US);
 
-/** 세그먼트마다 딸려 있어야 하는 부속 머티리얼. 없으면 캡컷이 드래프트를 거른다. */
+/** 키프레임으로 표현할 수 없어 사람이 직접 걸어야 하는 효과들. */
+export const MANUAL_EFFECTS: SceneEffect[] = ["blur", "glitch", "overlay"];
+
 interface SegmentExtras {
   speedId: string;
   canvasId: string;
@@ -28,13 +36,16 @@ interface SegmentExtras {
   vocalSeparationId: string;
 }
 
-function makeExtras(): {
+interface Extras {
   ids: SegmentExtras;
   speed: unknown;
   canvas: unknown;
   soundChannel: unknown;
   vocalSeparation: unknown;
-} {
+}
+
+/** 세그먼트마다 딸려 있어야 하는 부속 머티리얼. 없으면 캡컷이 드래프트를 거른다. */
+function makeExtras(): Extras {
   const ids: SegmentExtras = {
     speedId: upperUuid(),
     canvasId: upperUuid(),
@@ -45,71 +56,154 @@ function makeExtras(): {
     ids,
     speed: { id: ids.speedId, mode: 0, speed: 1.0, type: "speed", curve_speed: null },
     canvas: {
-      id: ids.canvasId,
-      type: "canvas_color",
-      album_image: "",
-      blur: 0.0,
-      color: "",
-      image: "",
-      image_id: "",
-      image_name: "",
-      source_platform: 0,
+      id: ids.canvasId, type: "canvas_color", album_image: "", blur: 0.0,
+      color: "", image: "", image_id: "", image_name: "", source_platform: 0,
     },
     soundChannel: {
-      id: ids.soundChannelId,
-      type: "none",
-      audio_channel_mapping: 0,
-      is_config_open: false,
+      id: ids.soundChannelId, type: "none",
+      audio_channel_mapping: 0, is_config_open: false,
     },
     vocalSeparation: {
-      id: ids.vocalSeparationId,
-      type: "vocal_separation",
-      choice: 0,
-      production_path: "",
-      time_range: null,
+      id: ids.vocalSeparationId, type: "vocal_separation",
+      choice: 0, production_path: "", time_range: null,
     },
   };
 }
 
-/** 켄번즈(느린 줌) 키프레임. image 모드 컷을 살아 있게 만드는 부분이다. */
-function kenBurnsKeyframes(
-  durationSec: number,
-  from: number,
-  to: number,
-): unknown[] {
-  const point = (timeOffset: number, value: number) => ({
-    curveType: "Line",
-    graphID: "",
-    id: upperUuid(),
-    left_control: { x: 0.0, y: 0.0 },
-    right_control: { x: 0.0, y: 0.0 },
-    time_offset: timeOffset,
-    values: [value],
-  });
+interface KeyPoint {
+  offsetSec: number;
+  value: number;
+}
 
-  return ["KFTypeScaleX", "KFTypeScaleY"].map((propertyType) => ({
+function keyframe(propertyType: string, points: KeyPoint[]): unknown {
+  return {
     id: upperUuid(),
-    keyframe_list: [point(0, from), point(us(durationSec), to)],
+    keyframe_list: points.map((point) => ({
+      curveType: "Line",
+      graphID: "",
+      id: upperUuid(),
+      left_control: { x: 0.0, y: 0.0 },
+      right_control: { x: 0.0, y: 0.0 },
+      time_offset: us(point.offsetSec),
+      values: [point.value],
+    })),
     material_id: "",
     property_type: propertyType,
-  }));
+  };
+}
+
+/**
+ * 씬 효과와 켄번즈를 키프레임으로 바꾼다.
+ * 같은 속성에 둘 다 걸리면 효과 쪽이 이긴다 (더 의도적인 지시라서).
+ */
+function effectKeyframes(args: {
+  effect: SceneEffect;
+  durationSec: number;
+  transitionSec: number;
+  kenBurns: { enabled: boolean; scaleFrom: number; scaleTo: number };
+  isVideo: boolean;
+}): unknown[] {
+  const { effect, durationSec, kenBurns, isVideo } = args;
+  const fade = Math.min(args.transitionSec, durationSec / 2);
+  const out: unknown[] = [];
+
+  const scaleFromTo = (from: number, to: number) => {
+    out.push(
+      keyframe("KFTypeScaleX", [
+        { offsetSec: 0, value: from },
+        { offsetSec: durationSec, value: to },
+      ]),
+      keyframe("KFTypeScaleY", [
+        { offsetSec: 0, value: from },
+        { offsetSec: durationSec, value: to },
+      ]),
+    );
+  };
+
+  switch (effect) {
+    case "fade":
+    case "dissolve":
+      out.push(
+        keyframe("KFTypeAlpha", [
+          { offsetSec: 0, value: 0 },
+          { offsetSec: fade, value: 1 },
+          { offsetSec: Math.max(fade, durationSec - fade), value: 1 },
+          { offsetSec: durationSec, value: effect === "dissolve" ? 0 : 1 },
+        ]),
+      );
+      break;
+
+    case "zoomIn":
+      scaleFromTo(1.0, Math.max(1.02, kenBurns.scaleTo));
+      break;
+    case "zoomOut":
+      scaleFromTo(Math.max(1.02, kenBurns.scaleTo), 1.0);
+      break;
+
+    case "panLeft":
+    case "panRight": {
+      // 팬을 하려면 화면 밖으로 나가지 않게 살짝 키워둬야 한다.
+      const shift = effect === "panLeft" ? -0.06 : 0.06;
+      scaleFromTo(1.08, 1.08);
+      out.push(
+        keyframe("KFTypePositionX", [
+          { offsetSec: 0, value: -shift },
+          { offsetSec: durationSec, value: shift },
+        ]),
+      );
+      break;
+    }
+
+    case "blackFlash":
+    case "whiteFlash":
+      // 앞머리에서 확 어두워졌다(밝아졌다) 돌아온다.
+      out.push(
+        keyframe("KFTypeAlpha", [
+          { offsetSec: 0, value: 0 },
+          { offsetSec: Math.min(0.12, durationSec / 4), value: 1 },
+        ]),
+      );
+      break;
+
+    default:
+      break;
+  }
+
+  // 효과가 배율을 안 건드렸고 정지 이미지라면 켄번즈를 건다.
+  const touchesScale = ["zoomIn", "zoomOut", "panLeft", "panRight"].includes(effect);
+  if (!touchesScale && !isVideo && kenBurns.enabled) {
+    scaleFromTo(kenBurns.scaleFrom, kenBurns.scaleTo);
+  }
+  return out;
 }
 
 /** 캡컷 텍스트 머티리얼의 content는 JSON을 문자열로 담은 필드다. */
-function textContent(text: string, fontSize: number): string {
+function textContent(
+  text: string,
+  style: { fontSize: number; color: string; strokeColor: string; strokeWidth: number },
+): string {
+  const rgb = (hex: string): [number, number, number] => {
+    const clean = hex.replace("#", "");
+    return [
+      parseInt(clean.slice(0, 2), 16) / 255,
+      parseInt(clean.slice(2, 4), 16) / 255,
+      parseInt(clean.slice(4, 6), 16) / 255,
+    ];
+  };
+
   return JSON.stringify({
     text,
     styles: [
       {
-        fill: { content: { render_type: "solid", solid: { color: [1, 1, 1] } } },
+        fill: { content: { render_type: "solid", solid: { color: rgb(style.color) } } },
         strokes: [
           {
-            content: { render_type: "solid", solid: { color: [0, 0, 0] } },
-            width: 0.08,
+            content: { render_type: "solid", solid: { color: rgb(style.strokeColor) } },
+            width: style.strokeWidth,
           },
         ],
         font: { id: "", path: "" },
-        size: fontSize,
+        size: style.fontSize,
         range: [0, [...text].length],
       },
     ],
@@ -123,6 +217,7 @@ function baseSegment(args: {
   durationSec: number;
   renderIndex: number;
   keyframes?: unknown[];
+  sourceStartSec?: number;
 }) {
   return {
     cartoon: false,
@@ -156,14 +251,14 @@ function baseSegment(args: {
     material_id: args.materialId,
     render_index: args.renderIndex,
     responsive_layout: {
-      enable: false,
-      horizontal_pos_layout: 0,
-      size_layout: 0,
-      target_follow: "",
-      vertical_pos_layout: 0,
+      enable: false, horizontal_pos_layout: 0, size_layout: 0,
+      target_follow: "", vertical_pos_layout: 0,
     },
     reverse: false,
-    source_timerange: { duration: us(args.durationSec), start: 0 },
+    source_timerange: {
+      duration: us(args.durationSec),
+      start: us(args.sourceStartSec ?? 0),
+    },
     speed: 1.0,
     target_timerange: { duration: us(args.durationSec), start: us(args.startSec) },
     template_id: "",
@@ -176,26 +271,40 @@ function baseSegment(args: {
   };
 }
 
+/** 자막 한 줄이 너무 길면 접는다. */
+function wrapCaption(text: string, maxChars: number): string {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if ([...candidate].length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join("\n");
+}
+
 export interface CapCutDraft {
   content: unknown;
   meta: unknown;
-  /** 드래프트가 참조하는 파일들 — 번들로 복사해야 하는 목록 */
   referencedAssets: string[];
+  /** 키프레임으로 못 걸어 사람이 직접 넣어야 하는 효과들 */
+  manualEffects: Array<{ scene: number; effect: SceneEffect }>;
 }
 
-/**
- * @param project     기획·에셋이 채워진 프로젝트
- * @param assetPathOf 컷 에셋의 **절대 경로**를 돌려주는 함수.
- *                    캡컷은 상대 경로를 못 읽어서 절대 경로가 필요하다.
- * @param draftFolder 이 드래프트가 놓일 폴더의 절대 경로
- */
 export function buildCapCutDraft(
   project: Project,
   assetPathOf: (relative: string) => string,
   draftFolder: string,
 ): CapCutDraft {
-  const { preset } = project;
-  const { width, height } = ASPECT_RESOLUTION[preset.aspect];
+  const { width, height } = ASPECT_RESOLUTION[project.preset.aspect];
+  const timeline: Timeline = buildTimeline(project);
 
   const videos: unknown[] = [];
   const audios: unknown[] = [];
@@ -209,128 +318,127 @@ export function buildCapCutDraft(
   const audioSegments: unknown[] = [];
   const textSegments: unknown[] = [];
   const referencedAssets: string[] = [];
+  const manualEffects: Array<{ scene: number; effect: SceneEffect }> = [];
 
-  let cursorSec = 0;
+  const pushExtras = (extras: Extras) => {
+    speeds.push(extras.speed);
+    canvases.push(extras.canvas);
+    soundChannels.push(extras.soundChannel);
+    vocalSeparations.push(extras.vocalSeparation);
+  };
 
-  project.cuts.forEach((cut: Cut, index: number) => {
-    const useVideo = cut.mode === "video" && cut.video !== null;
-    const visual = useVideo ? cut.video : cut.image;
-    const duration = cut.durationSec;
+  // ── 영상 트랙: 씬 하나에 한 세그먼트 ──
+  const sceneTimingById = new Map(timeline.scenes.map((s) => [s.sceneId, s]));
 
-    // 이미지/영상이 아직 없는 컷은 영상 트랙에서만 빠진다 (빈 참조는 드래프트를 깬다).
-    // 컷의 시간 자리는 그대로 두어야 나레이션·자막이 SRT와 같은 시각에 놓인다.
-    if (visual) {
-      referencedAssets.push(visual.path);
+  for (const scene of [...project.scenes].sort((a, b) => a.index - b.index)) {
+    const timing = sceneTimingById.get(scene.id);
+    if (!timing) continue;
 
-      const materialId = upperUuid();
-      const extras = makeExtras();
-      speeds.push(extras.speed);
-      canvases.push(extras.canvas);
-      soundChannels.push(extras.soundChannel);
-      vocalSeparations.push(extras.vocalSeparation);
-
-      videos.push({
-        id: materialId,
-        type: useVideo ? "video" : "photo",
-        path: assetPathOf(visual.path),
-        material_name: `cut-${String(index + 1).padStart(2, "0")}`,
-        width,
-        height,
-        duration: us(useVideo ? duration : 10800), // 정지 이미지는 캡컷 관례상 3시간
-        has_audio: useVideo,
-        crop: {
-          lower_left_x: 0.0, lower_left_y: 1.0,
-          lower_right_x: 1.0, lower_right_y: 1.0,
-          upper_left_x: 0.0, upper_left_y: 0.0,
-          upper_right_x: 1.0, upper_right_y: 0.0,
-        },
-        crop_ratio: "free",
-        crop_scale: 1.0,
-        category_name: "local",
-        check_flag: 62978047,
-        extra_type_option: 0,
-        is_ai_generate_content: false,
-        is_unified_beauty_mode: false,
-        local_material_id: materialId,
-        source_platform: 0,
-        stable: null,
-        video_algorithm: {
-          algorithms: [], deflicker: null, motion_blur_config: null,
-          noise_reduction: null, path: "", time_range: null,
-        },
-      });
-
-      videoSegments.push(
-        baseSegment({
-          materialId,
-          extras: extras.ids,
-          startSec: cursorSec,
-          durationSec: duration,
-          renderIndex: index,
-          keyframes:
-            !useVideo && preset.video.kenBurns.enabled
-              ? kenBurnsKeyframes(
-                  duration,
-                  preset.video.kenBurns.scaleFrom,
-                  preset.video.kenBurns.scaleTo,
-                )
-              : [],
-        }),
-      );
+    const useVideo = scene.mode === "video" && scene.video !== null;
+    const visual = useVideo ? scene.video : scene.image;
+    if (MANUAL_EFFECTS.includes(scene.effect)) {
+      manualEffects.push({ scene: scene.index + 1, effect: scene.effect });
     }
+    // 에셋이 없는 씬은 영상 트랙에서만 빠진다. 시간 자리는 그대로 둬야
+    // 나레이션·자막이 SRT와 같은 시각에 놓인다.
+    if (!visual) continue;
 
-    // ── 나레이션 음성 ──
-    if (cut.audio) {
+    referencedAssets.push(visual.path);
+    const materialId = upperUuid();
+    const extras = makeExtras();
+    pushExtras(extras);
+
+    videos.push({
+      id: materialId,
+      type: useVideo ? "video" : "photo",
+      path: assetPathOf(visual.path),
+      material_name: `scene-${String(scene.index + 1).padStart(3, "0")}`,
+      width, height,
+      duration: us(useVideo ? timing.durationSec : 10800), // 정지 이미지는 관례상 3시간
+      has_audio: false, // 나레이션이 따로 있어 원본 소리는 죽인다
+      crop: {
+        lower_left_x: 0.0, lower_left_y: 1.0, lower_right_x: 1.0, lower_right_y: 1.0,
+        upper_left_x: 0.0, upper_left_y: 0.0, upper_right_x: 1.0, upper_right_y: 0.0,
+      },
+      crop_ratio: "free", crop_scale: 1.0, category_name: "local",
+      check_flag: 62978047, extra_type_option: 0,
+      is_ai_generate_content: false, is_unified_beauty_mode: false,
+      local_material_id: materialId, source_platform: 0, stable: null,
+      video_algorithm: {
+        algorithms: [], deflicker: null, motion_blur_config: null,
+        noise_reduction: null, path: "", time_range: null,
+      },
+    });
+
+    videoSegments.push(
+      baseSegment({
+        materialId,
+        extras: extras.ids,
+        startSec: timing.startSec,
+        durationSec: timing.durationSec,
+        renderIndex: scene.index,
+        keyframes: effectKeyframes({
+          effect: scene.effect,
+          durationSec: timing.durationSec,
+          transitionSec: project.effects.transitionSec,
+          kenBurns: project.effects.kenBurns,
+          isVideo: useVideo,
+        }),
+      }),
+    );
+  }
+
+  // ── 음성 트랙 + 자막 트랙: 자막 라인 하나에 한 세그먼트씩 ──
+  const lineById = new Map(project.lines.map((l) => [l.id, l]));
+  const { caption } = project;
+
+  for (const timing of timeline.lines) {
+    const line = lineById.get(timing.lineId);
+    if (!line) continue;
+    const duration = timing.endSec - timing.startSec;
+
+    if (line.audio) {
+      referencedAssets.push(line.audio.path);
       const audioId = upperUuid();
-      const audioExtras = makeExtras();
-      speeds.push(audioExtras.speed);
-      canvases.push(audioExtras.canvas);
-      soundChannels.push(audioExtras.soundChannel);
-      vocalSeparations.push(audioExtras.vocalSeparation);
-      referencedAssets.push(cut.audio.path);
+      const extras = makeExtras();
+      pushExtras(extras);
 
       audios.push({
         id: audioId,
         type: "extract_music",
-        path: assetPathOf(cut.audio.path),
-        name: `narration-${index + 1}`,
-        duration: us(duration),
-        category_name: "local",
-        check_flag: 1,
-        source_platform: 0,
-        music_id: audioId,
-        local_material_id: audioId,
+        path: assetPathOf(line.audio.path),
+        name: `line-${String(line.index + 1).padStart(3, "0")}`,
+        duration: us(line.audio.durationSec),
+        category_name: "local", check_flag: 1, source_platform: 0,
+        music_id: audioId, local_material_id: audioId,
       });
       audioSegments.push(
         baseSegment({
           materialId: audioId,
-          extras: audioExtras.ids,
-          startSec: cursorSec,
+          extras: extras.ids,
+          startSec: timing.startSec,
           durationSec: duration,
-          renderIndex: index,
+          renderIndex: line.index,
         }),
       );
     }
 
-    // ── 자막 ──
-    const captionText =
-      preset.caption.source === "narration" ? cut.narration : cut.onScreenText;
-    if (preset.caption.enabled && captionText.trim()) {
+    if (caption.enabled && line.text.trim()) {
       const textId = upperUuid();
-      const textExtras = makeExtras();
-      speeds.push(textExtras.speed);
-      canvases.push(textExtras.canvas);
-      soundChannels.push(textExtras.soundChannel);
-      vocalSeparations.push(textExtras.vocalSeparation);
+      const extras = makeExtras();
+      pushExtras(extras);
 
       texts.push({
         id: textId,
         type: "text",
-        content: textContent(captionText, preset.caption.fontSize),
-        font_size: preset.caption.fontSize,
+        content: textContent(wrapCaption(line.text, caption.maxCharsPerLine), caption),
+        font_size: caption.fontSize,
+        // 폰트는 캡컷에 설치된 이름으로 지정한다. 없으면 캡컷이 기본 폰트로 대체한다.
+        font_name: caption.fontFamily,
+        font_path: "",
         alignment: 1,
         background_alpha: 0.0,
-        border_width: 0.08,
+        border_width: caption.strokeWidth,
         has_shadow: true,
         letter_spacing: 0.0,
         line_spacing: 0.02,
@@ -341,63 +449,46 @@ export function buildCapCutDraft(
 
       const segment = baseSegment({
         materialId: textId,
-        extras: textExtras.ids,
-        startSec: cursorSec,
+        extras: extras.ids,
+        startSec: timing.startSec,
         durationSec: duration,
-        renderIndex: index,
+        renderIndex: line.index,
       }) as Record<string, unknown>;
 
-      // 자막 세로 위치. 캡컷 좌표는 화면 중앙이 0, 아래가 양수다.
-      const yByPosition = { top: -0.72, center: 0.0, bottom: 0.72 };
+      // 캡컷 좌표는 화면 중앙이 0, 아래가 양수다.
+      const y =
+        caption.position === "center"
+          ? 0
+          : (caption.position === "bottom" ? 1 : -1) * (1 - caption.marginRatio * 2);
       segment.clip = {
         ...(segment.clip as object),
-        transform: { x: 0.0, y: yByPosition[preset.caption.position] },
+        transform: { x: 0.0, y },
       };
       textSegments.push(segment);
     }
+  }
 
-    cursorSec += duration;
-  });
-
-  const totalDuration = us(cursorSec);
   const track = (type: string, segments: unknown[]) => ({
-    attribute: 0,
-    flag: 0,
-    id: upperUuid(),
-    is_default_name: true,
-    name: "",
-    segments,
-    type,
+    attribute: 0, flag: 0, id: upperUuid(),
+    is_default_name: true, name: "", segments, type,
   });
 
   const content = {
     canvas_config: { width, height, ratio: "original" },
     color_space: 0,
     config: {
-      adjust_max_index: 1,
-      attachment_info: [],
-      combination_max_index: 1,
-      export_range: null,
-      extract_audio_last_index: 1,
-      lyrics_recognition_id: "",
-      lyrics_sync: true,
-      lyrics_taskinfo: [],
-      maintrack_adsorb: true,
-      material_save_mode: 0,
-      original_sound_last_index: 1,
-      record_audio_last_index: 1,
-      sticker_max_index: 1,
-      subtitle_recognition_id: "",
-      subtitle_sync: true,
-      subtitle_taskinfo: [],
-      video_mute: false,
-      zoom_info_params: null,
+      adjust_max_index: 1, attachment_info: [], combination_max_index: 1,
+      export_range: null, extract_audio_last_index: 1, lyrics_recognition_id: "",
+      lyrics_sync: true, lyrics_taskinfo: [], maintrack_adsorb: true,
+      material_save_mode: 0, original_sound_last_index: 1, record_audio_last_index: 1,
+      sticker_max_index: 1, subtitle_recognition_id: "", subtitle_sync: true,
+      subtitle_taskinfo: [], video_mute: false, zoom_info_params: null,
     },
     cover: null,
     create_time: 0,
-    duration: totalDuration,
+    duration: us(timeline.totalSec),
     extra_info: null,
-    fps: preset.fps,
+    fps: project.preset.fps,
     free_render_index_mode_on: false,
     group_container: null,
     id: upperUuid(),
@@ -407,20 +498,16 @@ export function buildCapCutDraft(
       handwrites: [], stickers: [], texts: [], videos: [],
     },
     materials: {
-      ai_translates: [], audio_balances: [], audio_effects: [],
-      audio_fades: [], audio_track_indexes: [],
-      audios,
-      beats: [], canvases, chromas: [], color_curves: [],
-      digital_humans: [], drafts: [], effects: [], flowers: [],
-      green_screens: [], hsl: [], images: [], log_color_wheels: [],
-      loudnesses: [], manual_deformations: [], masks: [],
-      material_animations: [], material_colors: [], multi_language_refs: [],
-      placeholders: [], plugin_effects: [], primary_color_wheels: [],
-      realtime_denoises: [], shapes: [], smart_crops: [],
-      smart_relights: [], sound_channel_mappings: soundChannels,
-      speeds, stickers: [], tail_leaders: [], text_templates: [],
-      texts, time_marks: [], transitions: [], video_effects: [],
-      video_trackings: [], videos, vocal_beautifys: [],
+      ai_translates: [], audio_balances: [], audio_effects: [], audio_fades: [],
+      audio_track_indexes: [], audios, beats: [], canvases, chromas: [],
+      color_curves: [], digital_humans: [], drafts: [], effects: [], flowers: [],
+      green_screens: [], hsl: [], images: [], log_color_wheels: [], loudnesses: [],
+      manual_deformations: [], masks: [], material_animations: [], material_colors: [],
+      multi_language_refs: [], placeholders: [], plugin_effects: [],
+      primary_color_wheels: [], realtime_denoises: [], shapes: [], smart_crops: [],
+      smart_relights: [], sound_channel_mappings: soundChannels, speeds, stickers: [],
+      tail_leaders: [], text_templates: [], texts, time_marks: [], transitions: [],
+      video_effects: [], video_trackings: [], videos, vocal_beautifys: [],
       vocal_separations: vocalSeparations,
     },
     mutable_config: null,
@@ -446,43 +533,28 @@ export function buildCapCutDraft(
 
   const nowUs = Date.now() * 1000;
   const meta = {
-    cloud_package_completed_time: "",
-    draft_cloud_capcut_purchase_info: "",
-    draft_cloud_last_action_download: false,
-    draft_cloud_materials: [],
-    draft_cloud_purchase_info: "",
-    draft_cloud_template_id: "",
-    draft_cloud_tutorial_info: "",
-    draft_cloud_videocut_purchase_info: "",
-    draft_cover: "draft_cover.jpg",
-    draft_deeplink_url: "",
+    cloud_package_completed_time: "", draft_cloud_capcut_purchase_info: "",
+    draft_cloud_last_action_download: false, draft_cloud_materials: [],
+    draft_cloud_purchase_info: "", draft_cloud_template_id: "",
+    draft_cloud_tutorial_info: "", draft_cloud_videocut_purchase_info: "",
+    draft_cover: "draft_cover.jpg", draft_deeplink_url: "",
     draft_enterprise_info: {
-      draft_enterprise_extra: "",
-      draft_enterprise_id: "",
-      draft_enterprise_name: "",
-      enterprise_material: null,
+      draft_enterprise_extra: "", draft_enterprise_id: "",
+      draft_enterprise_name: "", enterprise_material: null,
     },
     draft_fold_path: draftFolder,
     draft_id: upperUuid(),
-    draft_is_ai_packaging_used: false,
-    draft_is_ai_shorts: false,
-    draft_is_article_video_draft: false,
-    draft_is_from_deeplink: "false",
+    draft_is_ai_packaging_used: false, draft_is_ai_shorts: false,
+    draft_is_article_video_draft: false, draft_is_from_deeplink: "false",
     draft_materials: [],
-    draft_name: project.plan?.title ?? project.topic,
-    draft_new_version: "",
-    draft_removable_storage_device: "",
+    draft_name: project.title || project.topic,
+    draft_new_version: "", draft_removable_storage_device: "",
     draft_root_path: draftFolder.replace(/[\\/][^\\/]+$/, ""),
-    draft_segment_extra_info: [],
-    draft_timeline_materials_size_: 0,
-    draft_type: "",
-    tm_draft_cloud_completed: "",
-    tm_draft_cloud_modified: 0,
-    tm_draft_create: nowUs,
-    tm_draft_modified: nowUs,
-    tm_draft_removed: 0,
-    tm_duration: totalDuration,
+    draft_segment_extra_info: [], draft_timeline_materials_size_: 0, draft_type: "",
+    tm_draft_cloud_completed: "", tm_draft_cloud_modified: 0,
+    tm_draft_create: nowUs, tm_draft_modified: nowUs, tm_draft_removed: 0,
+    tm_duration: us(timeline.totalSec),
   };
 
-  return { content, meta, referencedAssets };
+  return { content, meta, referencedAssets, manualEffects };
 }

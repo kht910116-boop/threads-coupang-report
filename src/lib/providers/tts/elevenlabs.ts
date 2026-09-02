@@ -28,7 +28,7 @@ export const elevenlabs: TtsProvider = {
     }));
   },
 
-  async synthesize({ text, voiceId, speed }) {
+  async synthesize({ text, voiceId, speed, model }) {
     if (!voiceId) throw new Error("ElevenLabs: voiceId가 비어 있습니다.");
 
     const response = await fetch(
@@ -42,7 +42,7 @@ export const elevenlabs: TtsProvider = {
         },
         body: JSON.stringify({
           text,
-          model_id: process.env.ELEVENLABS_MODEL ?? "eleven_multilingual_v2",
+          model_id: model || process.env.ELEVENLABS_MODEL || "eleven_multilingual_v2",
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.75,

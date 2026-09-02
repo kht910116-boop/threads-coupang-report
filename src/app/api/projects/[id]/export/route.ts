@@ -15,12 +15,15 @@ export async function POST(_request: Request, { params }: Params) {
   return handle(async () => {
     const project = await getProject(id);
     if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
-    if (project.cuts.length === 0) {
-      throw new Error("먼저 기획을 생성하세요. 컷이 없습니다.");
+    if (project.scenes.length === 0) {
+      throw new Error("먼저 스토리보드를 만드세요. 장면이 없습니다.");
     }
 
     const result = await exportProject(project);
-    await saveProject({ ...project, status: "ready" });
+    await saveProject({
+      ...project,
+      done: [...new Set([...project.done, "styling" as const, "export" as const])],
+    });
 
     // 캡컷 드래프트 폴더가 설정돼 있으면 거기까지 바로 넣어준다.
     const capcutDir = process.env.CAPCUT_DRAFT_DIR;
