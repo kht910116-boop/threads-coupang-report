@@ -521,3 +521,52 @@ nav.rail .link.done { background: color-mix(in srgb, var(--ok) 45%, var(--border
 
 /* 고른 자막 줄 */
 .row.picked { background: var(--accent-soft); border-radius: 6px; }
+
+/* ── 밖에서 만들어 오기 (엑셀 내보내기 + 일괄 업로드) ───────────── */
+
+/*
+  안내 문장. 카드 안에서 '설명'과 '조작'이 섞이므로 색과 크기로 층을 나눈다.
+  .gutter .note가 이미 있어서 거기서는 그쪽 규칙이 이긴다 — 의도한 것이다.
+*/
+.note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+.warn {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--danger, #d97757);
+}
+
+/* 세 단계짜리 손 절차. 번호가 있어야 '이 순서대로 하면 된다'가 읽힌다. */
+.steps-inline {
+  margin: 10px 0 16px;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--text-dim);
+}
+.steps-inline li { margin-bottom: 4px; }
+.steps-inline li::marker { color: var(--text); font-weight: 600; }
+
+.batch {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+/*
+  붙인 결과. 성공 개수만 크게 보이고 못 붙인 것은 그 아래 남는다 —
+  '몇 개 됐지?'가 첫 질문이고 '뭐가 빠졌지?'가 그다음이다.
+*/
+.batch-result {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft, rgba(127, 127, 127, 0.06));
+}
+.batch-result p { margin: 0; font-size: 12.5px; line-height: 1.7; }
+.batch-result p + p { margin-top: 6px; }

@@ -124,6 +124,159 @@ function UploadButton({
 }
 
 /**
+ * 스토리보드 표를 엑셀로 내려받는다.
+ *
+ * 이미지·영상은 사용자가 플로우·그록에서 직접 만든다. 그 사이를 잇는 것이 이 표다.
+ * 프롬프트 열에 화풍까지 붙여서 나가므로 셀을 그대로 복사해 쓸 수 있다.
+ */
+function XlsxButton({
+  projectId,
+  kind,
+  label,
+}: {
+  projectId: string;
+  kind: "image" | "video";
+  label: string;
+}) {
+  const [error, setError] = useState("");
+  return (
+    <>
+      <button
+        className="sm"
+        onClick={async () => {
+          setError("");
+          const res = await fetch(`/api/projects/${projectId}/storyboard/xlsx?kind=${kind}`);
+          if (!res.ok) {
+            setError(await res.text());
+            return;
+          }
+          // 서버가 정한 파일명을 그대로 쓴다. 한글 제목이 filename*로 온다.
+          const name = decodeURIComponent(
+            /filename\*=UTF-8''([^;]+)/.exec(res.headers.get("content-disposition") ?? "")?.[1] ??
+              "storyboard.xlsx",
+          );
+          const url = URL.createObjectURL(await res.blob());
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = name;
+          a.click();
+          URL.revokeObjectURL(url);
+        }}
+      >
+        {label}
+      </button>
+      {error && <span className="warn">{error}</span>}
+    </>
+  );
+}
+
+/**
+ * 만들어 온 파일 여러 개를 한 번에 장면에 붙인다.
+ *
+ * 장면이 아흔 개인 대본에서 하나씩 올리게 하면 아무도 안 쓴다. 대신 **어느 파일이
+ * 어느 장면에 붙었는지 반드시 보여준다** — 조용히 엉뚱한 장면에 붙는 것이
+ * 안 붙는 것보다 나쁘다.
+ */
+function BatchUpload({
+  projectId,
+  kind,
+  onDone,
+}: {
+  projectId: string;
+  kind: "image" | "video";
+  onDone: (project: Project) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [match, setMatch] = useState<"number" | "order">("number");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{
+    matched: Array<{ scene: number; file: string }>;
+    unmatched: string[];
+    stillEmpty: number[];
+  } | null>(null);
+
+  return (
+    <div className="batch">
+      <Seg
+        label="파일과 장면을 어떻게 맞출까요"
+        value={match}
+        options={[
+          {
+            id: "number",
+            label: "이름 속 번호",
+            hint: "파일 이름 맨 뒤 숫자를 장면 번호로 봅니다 (권장)",
+          },
+          {
+            id: "order",
+            label: "이름 순서",
+            hint: "이름순으로 세워 1번 장면부터 차례로 채웁니다",
+          },
+        ]}
+        onChange={setMatch}
+      />
+      <p className="note">
+        받은 엑셀의 씬번호가 그대로 장면 번호입니다. 번호 방식은 이름의{" "}
+        <strong>맨 뒤 숫자</strong>만 봅니다 — <code>Flow_2026-09-03_12.png</code>는
+        12번 장면입니다. 맨 뒤 숫자가 장면 수를 넘거나 숫자가 없으면 붙이지 않고
+        아래에 알려줍니다. 하나가 빠져도 나머지가 밀리지 않으니 번호 방식이 안전합니다.
+        이미 파일이 있는 장면은 새 파일로 바뀝니다.
+      </p>
+      <button className="primary" disabled={busy} onClick={() => input.current?.click()}>
+        {busy ? "올리는 중..." : `${kind === "image" ? "이미지" : "영상"} 여러 개 올리기`}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        hidden
+        multiple
+        accept={kind === "image" ? "image/*" : "video/*"}
+        onChange={async (e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = "";
+          if (files.length === 0) return;
+          const form = new FormData();
+          form.append("kind", kind);
+          form.append("match", match);
+          for (const file of files) form.append("files", file);
+          setBusy(true);
+          setResult(null);
+          try {
+            const data = await api<{
+              project: Project;
+              matched: Array<{ scene: number; file: string }>;
+              unmatched: string[];
+              stillEmpty: number[];
+            }>(`/api/projects/${projectId}/upload/batch`, { method: "POST", body: form });
+            onDone(data.project);
+            setResult(data);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      {result && (
+        <div className="batch-result">
+          <p>
+            <strong>{result.matched.length}개</strong>를 장면에 붙였습니다.
+          </p>
+          {result.unmatched.length > 0 && (
+            <p className="warn">
+              맞는 장면을 못 찾은 파일 {result.unmatched.length}개:{" "}
+              {result.unmatched.join(", ")}
+            </p>
+          )}
+          {result.stillEmpty.length > 0 && (
+            <p className="note">
+              아직 비어 있는 장면: {result.stillEmpty.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * 이름 붙인 선택지 + 고른 결과를 말로 설명하는 힌트.
  *
  * 숫자를 그대로 받지 않으려고 만들었다. 사용자는 '줄 사이 200ms'가 어느 정도인지
@@ -1010,8 +1163,16 @@ export function StepStoryboard({ project, setProject, run, busy }: PanelProps) {
             <h3>
               장면 <span className="count">{project.scenes.length}개</span>
             </h3>
-            <small>{fmt(spanStart)}~{fmt(spanStart + spanLength)}</small>
+            <div className="row">
+              <small>{fmt(spanStart)}~{fmt(spanStart + spanLength)}</small>
+              <XlsxButton projectId={project.id} kind="image" label="엑셀로 받기" />
+            </div>
           </div>
+          <p className="note">
+            엑셀에는 씬번호·한글요약·프롬프트가 들어갑니다. 프롬프트에는 화풍까지 붙어
+            있으니 플로우에 그대로 넣으면 됩니다. 만든 이미지는 이미지 단계에서 한꺼번에
+            올립니다.
+          </p>
 
           {/* 파트별로 걸러 본다. 장면이 수십 개가 되면 한 번에 다 보는 게 오히려 안 읽힌다. */}
           <div className="chips">
@@ -1323,6 +1484,41 @@ export function StepVisuals({
           </button>
         </div>
       </div>
+
+      {/*
+        밖에서 만들어 오는 길.
+
+        위 카드가 앱이 대신 만들어 주는 길이라면 이건 사용자가 직접 만드는 길이다.
+        구독으로 쓰는 플로우·그록에는 붙일 API가 없으니 이쪽이 실제로 쓰이는 경로다.
+        그래서 접어두지 않고 같은 크기의 카드로 나란히 둔다.
+      */}
+      {project.scenes.length > 0 && (
+        <div className="card">
+          <div className="card-head">
+            <h3>밖에서 만들어 오기</h3>
+            <XlsxButton
+              projectId={project.id}
+              kind={kind}
+              label={kind === "image" ? "엑셀로 받기" : "영상 표 엑셀로 받기"}
+            />
+          </div>
+          <ol className="steps-inline">
+            <li>
+              엑셀을 받습니다.
+              {kind === "image"
+                ? " 씬번호·한글요약·프롬프트가 들어 있고, 프롬프트에는 화풍까지 붙어 있습니다."
+                : " 씬번호·한글요약·컷파일·프롬프트가 들어 있습니다. 컷파일은 이 장면에 이미 붙어 있는 이미지입니다."}
+            </li>
+            <li>
+              {kind === "image"
+                ? "구글 플로우에 엑셀을 넣고 이미지를 만듭니다."
+                : "그록에 컷 이미지와 엑셀의 프롬프트를 같이 넣고 영상을 만듭니다."}
+            </li>
+            <li>내려받은 파일을 아래에서 한꺼번에 올립니다.</li>
+          </ol>
+          <BatchUpload projectId={project.id} kind={kind} onDone={setProject} />
+        </div>
+      )}
 
       {redoAsk && (
         <Confirm
