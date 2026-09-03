@@ -7,6 +7,7 @@ import {
   MAX_REFERENCES,
   SCENE_EFFECTS,
   SECTION_LABEL,
+  estimateDurationSec,
   type Project,
   type Scene,
   type ScriptSection,
@@ -471,12 +472,24 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
     });
 
   const totalChars = project.lines.reduce((sum, l) => sum + [...l.text].length, 0);
+  // 음성이 아직 없어도 글자수로 어림한다. 대본이 목표 길이에 맞는지는 지금 알아야 한다.
+  const estimatedSec = project.lines.reduce(
+    (sum, l) => sum + (l.audio?.durationSec ?? estimateDurationSec(l.text)),
+    0,
+  );
+  // 1.4배 이상 어긋나면 알린다. 그보다 작은 차이는 다듬으면 되는 범위다.
+  const ratio = project.preset.targetDurationSec > 0
+    ? estimatedSec / project.preset.targetDurationSec
+    : 1;
+  const offTarget = project.lines.length > 0 && (ratio > 1.4 || ratio < 0.7);
 
   return (
     <>
       <div className="card spread">
         <div>
-          <strong>{project.lines.length}줄 / {totalChars}자</strong>
+          <strong>
+            {project.lines.length}줄 / {totalChars.toLocaleString()}자 · 예상 {fmt(estimatedSec)}
+          </strong>
           <br />
           <small>
             한 줄이 자막 한 줄이자 음성 한 덩어리입니다. 고치면 그 줄의 음성은 지워집니다.
@@ -488,6 +501,21 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
           </button>
         )}
       </div>
+
+      {/*
+        스타일이 정한 목표 길이와 실제 대본 길이가 크게 어긋나면 알려준다.
+        밖에서 써 온 대본을 붙여넣는 경우 이 차이가 몇 배씩 벌어지는데, 그대로 두면
+        장면 간격도 프리셋 기준으로 잡혀서 27분짜리에 3분용 간격이 적용된다.
+      */}
+      {offTarget && (
+        <div className="notice">
+          이 대본은 <strong>{fmt(estimatedSec)}</strong>인데 스타일 목표는{" "}
+          <strong>{fmt(project.preset.targetDurationSec)}</strong>입니다.
+          {estimatedSec > project.preset.targetDurationSec
+            ? " 4단계 장면 간격이 짧은 영상 기준이라 장면이 많이 나옵니다. 간격을 늘리거나 스타일을 긴 영상용으로 바꾸세요."
+            : " 장면이 몇 개 안 나올 수 있습니다. 간격을 줄여보세요."}
+        </div>
+      )}
 
       {project.lines.length === 0 && (
         <Empty
