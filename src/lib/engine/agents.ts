@@ -35,6 +35,19 @@ export const agentSchema = z.object({
    * 비우면 stdout 전체를 답으로 본다.
    */
   resultPath: z.string().default(""),
+  /**
+   * 이 항목을 실행할 때만 얹는 환경변수.
+   *
+   * **다계정을 이걸로 한다.** 구독 CLI는 대개 홈 디렉터리 하나에 로그인 정보를
+   * 넣어두므로, 그 경로만 갈아끼우면 같은 CLI를 계정별로 따로 쓸 수 있다.
+   *
+   *   codex   → CODEX_HOME
+   *   claude  → CLAUDE_CONFIG_DIR
+   *
+   * 그래서 계정 하나당 항목 하나를 만든다. id와 label만 다르고 나머지는 같다.
+   * 코드는 어떤 변수가 무슨 뜻인지 몰라도 된다 — 설정이 다 정한다.
+   */
+  env: z.record(z.string(), z.string()).default({}),
   /** 설치 여부 확인용 인자 */
   versionArgs: z.array(z.string()).default(["--version"]),
   timeoutMs: z.number().int().positive().default(15 * 60 * 1000),
@@ -77,6 +90,7 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     promptVia: "stdin",
     supportsSchema: true,
     resultPath: "result",
+    env: {},
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
@@ -102,6 +116,8 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     supportsSchema: false,
     // 답만 stdout으로 나온다. 실행 정보·훅·토큰 수는 전부 stderr다. 확인함.
     resultPath: "",
+    // 계정을 더 붙이려면 이 항목을 복제하고 CODEX_HOME만 다른 폴더로 준다.
+    env: {},
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
@@ -123,6 +139,7 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     supportsSchema: true,
     // 응답 봉투의 답 필드. thought·usage·cost가 같이 온다.
     resultPath: "text",
+    env: {},
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
@@ -139,6 +156,7 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     supportsSchema: false,
     // 답만 stdout으로 나온다. 모델 정보는 stderr다. 확인함.
     resultPath: "",
+    env: {},
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,

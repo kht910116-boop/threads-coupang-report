@@ -292,6 +292,7 @@ interface Agent {
   promptVia: "stdin" | "arg";
   supportsSchema: boolean;
   resultPath: string;
+  env: Record<string, string>;
   versionArgs: string[];
   timeoutMs: number;
   verified: boolean;
@@ -306,11 +307,27 @@ const NEW_AGENT: Agent = {
   promptVia: "arg",
   supportsSchema: false,
   resultPath: "",
+  env: {},
   versionArgs: ["--version"],
   timeoutMs: 900000,
   verified: false,
   notes: "",
 };
+
+/** "KEY=값" 줄들 ↔ 객체. 화면에서는 줄로 편집하는 편이 쉽다. */
+const envToText = (env: Record<string, string>) =>
+  Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n");
+
+function textToEnv(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const at = line.indexOf("=");
+    if (at <= 0) continue;
+    const key = line.slice(0, at).trim();
+    if (key) out[key] = line.slice(at + 1).trim();
+  }
+  return out;
+}
 
 /**
  * CLI 설정 편집기.
@@ -449,6 +466,23 @@ function AgentEditor() {
                     }
                   />
                 </div>
+              </div>
+
+              {/*
+                다계정을 이걸로 한다. 구독 CLI는 대개 홈 디렉터리 하나에 로그인 정보를
+                두므로, 그 경로만 갈아끼우면 같은 CLI를 계정별로 따로 쓸 수 있다.
+              */}
+              <div className="field">
+                <label>
+                  환경변수 (KEY=값, 한 줄에 하나) — 계정을 나눌 때 씁니다
+                </label>
+                <textarea
+                  className="mono"
+                  rows={2}
+                  value={envToText(agent.env ?? {})}
+                  onChange={(e) => update(index, { env: textToEnv(e.target.value) })}
+                  placeholder={"codex 두 번째 계정 예시\nCODEX_HOME=C:\\Users\\나\\.codex-2"}
+                />
               </div>
 
               <div className="row">

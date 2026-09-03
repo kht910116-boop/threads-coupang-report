@@ -23,11 +23,16 @@ function run(
   args: string[],
   stdin: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     // 이 앱의 폴더가 아니라 임시 폴더에서 돌린다 —
     // 프로젝트의 설정 파일이나 컨텍스트를 끌고 들어오지 않게.
-    const child = spawn(command, args, { cwd: os.tmpdir() });
+    // env는 항목마다 다르다. 다계정이 이걸로 갈린다(CODEX_HOME 같은 것).
+    const child = spawn(command, args, {
+      cwd: os.tmpdir(),
+      env: { ...process.env, ...extraEnv },
+    });
 
     let stdout = "";
     let stderr = "";
@@ -114,7 +119,7 @@ export function makeCliEngine(agent: AgentConfig): Engine {
 
     async isAvailable() {
       try {
-        const result = await run(agent.command, agent.versionArgs, "", 20_000);
+        const result = await run(agent.command, agent.versionArgs, "", 20_000, agent.env);
         return result.code === 0;
       } catch {
         return false;
@@ -151,6 +156,7 @@ export function makeCliEngine(agent: AgentConfig): Engine {
           args,
           agent.promptVia === "stdin" ? finalUser : "",
           agent.timeoutMs,
+          agent.env,
         );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
