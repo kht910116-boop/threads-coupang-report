@@ -174,6 +174,8 @@ export default function SettingsPage() {
 
       <AgentEditor />
 
+      <KeyEditor />
+
       {section("음성 (TTS)", status.tts, true)}
 
       {voicesOf && (
@@ -280,6 +282,98 @@ function WebProviderActions({ id }: { id: string }) {
       </div>
       {busy && <small><span className="spinner" />{busy} 중…</small>}
       {result && <small style={{ display: "block", maxWidth: 260 }}>{result}</small>}
+    </div>
+  );
+}
+
+interface SecretRow {
+  key: string;
+  usedBy: string[];
+  saved: boolean;
+  preview: string;
+  fromEnv: boolean;
+}
+
+/**
+ * API 키 편집기.
+ *
+ * 예전에는 .env 파일을 직접 고쳐야 했다. 설치해서 쓰는 프로그램이 된 지금은 그
+ * 파일이 설치 폴더 안에 있어서 사용자가 찾을 수 없다. 파일 편집을 요구하는 순간
+ * 그 기능은 없는 기능이 된다.
+ *
+ * 어떤 키가 필요한지는 어댑터가 스스로 알려주므로(envKeys) 목록을 여기 박지 않는다.
+ */
+function KeyEditor() {
+  const [rows, setRows] = useState<SecretRow[] | null>(null);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState("");
+  const [error, setError] = useState("");
+
+  const load = () =>
+    void api<SecretRow[]>("/api/secrets").then(setRows).catch(() => setRows([]));
+
+  useEffect(load, []);
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    setInfo("");
+    try {
+      await api("/api/secrets", { method: "PUT", json: edits });
+      setEdits({});
+      setInfo("저장했습니다. 바로 반영됩니다.");
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!rows) return null;
+  const dirty = Object.keys(edits).length > 0;
+
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-head">
+        <h3>
+          API 키 <span className="count">{rows.filter((r) => r.saved || r.fromEnv).length}/{rows.length} 넣음</span>
+        </h3>
+        {dirty && (
+          <button className="primary sm" onClick={save} disabled={busy}>
+            {busy && <span className="spinner" />}저장
+          </button>
+        )}
+      </div>
+      <p className="dim" style={{ marginTop: 0, fontSize: 12.5, lineHeight: 1.7 }}>
+        구독으로 되는 것은 키가 필요 없습니다. 여기는 <strong>구독으로 안 되는 것만</strong>
+        채우면 됩니다. 넣은 값은 이 PC의 <code>data/secrets.json</code>에만 저장되고
+        밖으로 나가지 않습니다.
+      </p>
+
+      {rows.map((row) => (
+        <div className="field" key={row.key}>
+          <label>
+            <code>{row.key}</code> — {row.usedBy.join(" · ")}
+            {row.fromEnv && " (.env로 이미 들어와 있어 이 값이 우선입니다)"}
+          </label>
+          <input
+            className="mono"
+            type="password"
+            value={edits[row.key] ?? ""}
+            placeholder={
+              row.saved ? `저장됨 ${row.preview} — 바꾸려면 새 값을 넣으세요`
+              : row.fromEnv ? ".env에서 들어옴"
+              : "비어 있음"
+            }
+            onChange={(e) => setEdits({ ...edits, [row.key]: e.target.value })}
+          />
+        </div>
+      ))}
+
+      {error && <div className="notice error">{error}</div>}
+      {info && <div className="notice ok">{info}</div>}
     </div>
   );
 }

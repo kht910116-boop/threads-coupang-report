@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { loadSecretsIntoEnv } from "@/lib/secrets";
 
 /** 라우트 핸들러를 감싸서 에러를 사람이 읽는 메시지로 바꿔준다. */
 export async function handle<T>(
   fn: () => Promise<T>,
 ): Promise<NextResponse> {
   try {
+    // 어댑터들이 process.env를 직접 읽으므로 그 전에 저장된 키를 얹는다.
+    // 화면에서 넣은 키가 .env 없이도 바로 먹게 하는 자리다.
+    await loadSecretsIntoEnv();
     return NextResponse.json((await fn()) ?? { ok: true });
   } catch (error) {
     if (error instanceof ZodError) {
