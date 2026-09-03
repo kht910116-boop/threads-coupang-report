@@ -35,7 +35,13 @@ function knownKeys(): Array<{ key: string; usedBy: string[] }> {
     byKey.get(key)!.add(label);
   }
 
-  return [...byKey].map(([key, usedBy]) => ({ key, usedBy: [...usedBy] }));
+  return [...byKey].map(([key, usedBy]) => ({
+    key,
+    usedBy: [...usedBy],
+    // 어댑터의 envKeys에는 키가 아닌 것도 섞여 있다 — 모델 이름, 주소 같은 것들.
+    // 구분 없이 늘어놓으면 사용자가 거기에도 키를 붙여넣는다. 실제로 그런 일이 있었다.
+    secret: /(_KEY|_TOKEN|_SECRET)$/.test(key),
+  }));
 }
 
 export async function GET() {

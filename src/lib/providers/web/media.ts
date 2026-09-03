@@ -92,6 +92,35 @@ export const DEFAULT_MEDIA_RECIPES: MediaRecipe[] = [
     notes: `${UNVERIFIED} 이미지를 그려달라는 말을 프롬프트 앞에 붙여야 할 수 있다.`,
   },
   {
+    id: "flow-video",
+    label: "Google Flow 영상 (구독)",
+    kind: "video",
+    /*
+     * Flow는 **프로젝트 안에서만** 만들 수 있다. 아래 주소는 도구 목록이라 입력창이 없다.
+     * 자기 Flow 프로젝트를 하나 만들고 그 주소(.../flow/project/<id>)로 바꿔야 한다.
+     * 연결 상태 화면에서 고치면 된다.
+     */
+    url: "https://labs.google/fx/ko/tools/flow",
+    // 입력창이 Slate 에디터다. 클래스는 배포마다 바뀌는 해시(sc-1c9f7009-0 …)라 못 쓰고,
+    // data-slate-editor는 프레임워크가 보장하는 속성이라 안 깨진다. 실제로 확인했다.
+    promptSelector: "div[data-slate-editor='true']",
+    // 보내기 버튼에 aria-label도 data-testid도 없고 클래스는 해시다. 남은 단서가
+    // 머티리얼 아이콘 글자뿐이라 텍스트로 잡는다.
+    submit: "button:has-text('arrow_forward')",
+    extract: "element",
+    resultSelector: "video",
+    downloadSelector: "",
+    preClickSelectors: [],
+    timeoutMs: 600000,
+    settleMs: 3000,
+    loggedInSelector: "div[data-slate-editor='true']",
+    verified: false,
+    notes:
+      "입력창 선택자는 실제 편집기에서 확인했다. 보내기와 결과(video)는 미검증 — " +
+      "확인하려면 실제로 만들어야 하고 그건 Flow 크레딧을 쓴다. " +
+      "url을 자기 프로젝트 주소로 바꿔야 동작한다.",
+  },
+  {
     id: "elevenlabs-web",
     label: "ElevenLabs 음성 (구독)",
     kind: "audio",
@@ -112,9 +141,9 @@ export const DEFAULT_MEDIA_RECIPES: MediaRecipe[] = [
     id: "typecast-web",
     label: "타입캐스트 음성 (구독)",
     kind: "audio",
-    // 이 주소는 마케팅 페이지다(열면 typecast.ai/kr/로 넘어간다). 실제 편집기 주소로
-    // 바꿔야 하는데, 로그인해야 보이므로 아직 확인하지 못했다.
-    url: "https://typecast.ai/",
+    // 편집기는 typecast.ai가 아니라 **studio.typecast.ai**에 있다. 예전 값
+    // "https://typecast.ai/"는 마케팅 페이지였고 /kr/editor는 404다.
+    url: "https://studio.typecast.ai/text-to-speech",
     promptSelector: "textarea, div[contenteditable='true']",
     submit: "enter",
     extract: "download",

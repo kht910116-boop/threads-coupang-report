@@ -292,6 +292,8 @@ interface SecretRow {
   saved: boolean;
   preview: string;
   fromEnv: boolean;
+  /** 진짜 비밀인지. 모델 이름·주소 같은 선택 설정과 섞이면 거기에도 키를 붙여넣는다. */
+  secret: boolean;
 }
 
 /**
@@ -352,7 +354,7 @@ function KeyEditor() {
         밖으로 나가지 않습니다.
       </p>
 
-      {rows.map((row) => (
+      {rows.filter((r) => r.secret).map((row) => (
         <div className="field" key={row.key}>
           <label>
             <code>{row.key}</code> — {row.usedBy.join(" · ")}
@@ -371,6 +373,28 @@ function KeyEditor() {
           />
         </div>
       ))}
+
+      {/*
+        모델 이름·주소는 키가 아니다. 같이 늘어놓았더니 여기에도 키를 붙여넣는 일이
+        생겼다. 접어두고 "비워두면 기본값"이라고 못 박는다.
+      */}
+      <details className="adv">
+        <summary>선택 설정 — 모델 이름·주소 (비워두면 기본값을 씁니다)</summary>
+        {rows.filter((r) => !r.secret).map((row) => (
+          <div className="field" key={row.key}>
+            <label>
+              <code>{row.key}</code> — {row.usedBy.join(" · ")}
+            </label>
+            <input
+              className="mono"
+              value={edits[row.key] ?? ""}
+              placeholder={row.saved ? "저장됨" : "비워두면 기본값"}
+              onChange={(e) => setEdits({ ...edits, [row.key]: e.target.value })}
+            />
+            <small>여기는 키를 넣는 칸이 아닙니다.</small>
+          </div>
+        ))}
+      </details>
 
       {error && <div className="notice error">{error}</div>}
       {info && <div className="notice ok">{info}</div>}
