@@ -48,6 +48,29 @@ export const agentSchema = z.object({
    * 코드는 어떤 변수가 무슨 뜻인지 몰라도 된다 — 설정이 다 정한다.
    */
   env: z.record(z.string(), z.string()).default({}),
+  /**
+   * 이 CLI가 고를 수 있는 모델.
+   *
+   * 코드에 모델 이름을 박지 않는다. CLI마다 이름도 플래그도 다르고, 모델은
+   * 몇 달에 한 번씩 바뀐다 — 그때마다 코드를 고치면 설계가 틀린 것이다.
+   * 목록이 비어 있으면 화면에 모델 선택이 안 나오고 CLI 기본값을 쓴다.
+   */
+  models: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        note: z.string().default(""),
+      }),
+    )
+    .default([]),
+  /**
+   * 모델을 고를 때 덧붙일 인자. {{model}} 자리에 고른 id가 들어간다.
+   *
+   * args가 아니라 따로 두는 이유는, 모델을 안 고르면 이 인자들이 통째로
+   * 빠져야 하기 때문이다. args에 섞어두면 `--model` 만 덩그러니 남는다.
+   */
+  modelArgs: z.array(z.string()).default([]),
   /** 설치 여부 확인용 인자 */
   versionArgs: z.array(z.string()).default(["--version"]),
   timeoutMs: z.number().int().positive().default(15 * 60 * 1000),
@@ -94,6 +117,13 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
+    models: [
+      { id: "opus", label: "Opus", note: "가장 똑똑합니다. 대본·구조처럼 판단이 필요한 일에" },
+      { id: "sonnet", label: "Sonnet", note: "권장 — 빠르고 충분합니다" },
+      { id: "haiku", label: "Haiku", note: "가장 빠르고 쌉니다. 짧은 질문에" },
+      { id: "fable", label: "Fable", note: "글맛을 살리는 모델" },
+    ],
+    modelArgs: ["--model", "{{model}}"],
     notes: "`claude` 실행 후 /login 으로 구독 계정 로그인 한 번이면 된다.",
   },
   {
@@ -121,6 +151,8 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
+    models: [],
+    modelArgs: ["--model", "{{model}}"],
     notes:
       "codex-cli 0.152.1에서 확인. `codex` 실행 후 ChatGPT 계정으로 로그인 한 번이면 된다.",
   },
@@ -143,6 +175,8 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
+    models: [],
+    modelArgs: ["--model", "{{model}}"],
     notes:
       "grok 1.0.13에서 확인. 프롬프트가 인자로 들어가므로 아주 긴 대본에서는 명령줄 " +
       "길이 제한에 걸릴 수 있다. 그럴 때는 codex나 claude를 쓸 것.",
@@ -160,6 +194,8 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
     verified: true,
+    models: [],
+    modelArgs: ["--model", "{{model}}"],
     notes: "opencode 1.18.25에서 확인. `opencode providers`로 쓸 모델을 붙여둬야 한다.",
   },
 ];
@@ -195,8 +231,25 @@ export async function listAgents(): Promise<AgentConfig[]> {
   }
   const known = new Set(stored.map((a) => a.id));
   const missing = DEFAULT_AGENTS.filter((a) => !known.has(a.id));
-  if (missing.length > 0) {
-    const merged = [...stored, ...missing];
+
+  /*
+    이미 저장된 항목에 새로 생긴 칸을 채워 넣는다.
+
+    설정 파일은 앱보다 오래 산다. 모델 선택을 나중에 붙였는데 저장된 파일에는
+    그 칸이 없어서, 쓰던 사람에게는 기능이 아예 없는 것처럼 보였다. 사용자가
+    직접 넣은 값은 건드리지 않고 **비어 있는 칸만** 기본값으로 메운다.
+  */
+  const filled = stored.map((agent) => {
+    const base = DEFAULT_AGENTS.find((d) => d.id === agent.id);
+    if (!base) return agent;
+    if (agent.models.length > 0 || agent.modelArgs.length > 0) return agent;
+    return { ...agent, models: base.models, modelArgs: base.modelArgs };
+  });
+
+  const changed =
+    missing.length > 0 || filled.some((a, i) => a !== stored[i]);
+  if (changed) {
+    const merged = [...filled, ...missing];
     await writeAgents(merged);
     return merged;
   }

@@ -18,10 +18,18 @@ export interface CompleteArgs {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
+export interface EngineModel {
+  id: string;
+  label: string;
+  note: string;
+}
+
 export interface Engine {
   id: string;
   label: string;
   kind: "cli" | "web" | "api";
+  /** 고를 수 있는 모델. 비면 화면에 선택이 안 나온다. */
+  models?: EngineModel[];
   isAvailable(): Promise<boolean>;
   unavailableReason(): string;
   /** 원문 텍스트를 그대로 돌려준다. JSON 파싱은 호출한 쪽에서 한다. */

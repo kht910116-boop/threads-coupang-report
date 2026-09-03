@@ -15,14 +15,24 @@ import type { Engine } from "./types";
  * PLANNER_AGENT=<id>로 못박을 수 있다.
  */
 
-export async function allEngines(): Promise<Engine[]> {
+export async function allEngines(model = ""): Promise<Engine[]> {
   const [agents, recipes] = await Promise.all([listAgents(), listWebRecipes()]);
-  return [...agents.map(makeCliEngine), ...recipes.map(makeWebEngine), apiEngine, googleEngine];
+  return [
+    ...agents.map((agent) => makeCliEngine(agent, model)),
+    ...recipes.map(makeWebEngine),
+    apiEngine,
+    googleEngine,
+  ];
 }
 
-/** 프로젝트가 엔진을 지정했으면 그걸, 아니면 환경변수, 아니면 자동 선택. */
-export async function selectEngine(preferredId?: string): Promise<Engine> {
-  const engines = await allEngines();
+/**
+ * 프로젝트가 엔진을 지정했으면 그걸, 아니면 환경변수, 아니면 자동 선택.
+ *
+ * @param model 그 엔진 안에서 고른 모델. 엔진마다 목록이 다르므로, 지정한
+ *   엔진에 없는 모델이면 그냥 무시된다(CLI 기본값을 쓴다).
+ */
+export async function selectEngine(preferredId?: string, model = ""): Promise<Engine> {
+  const engines = await allEngines(model);
   const wanted = preferredId?.trim() || process.env.PLANNER_AGENT?.trim();
 
   if (wanted) {
@@ -66,6 +76,7 @@ export async function engineStatus(probeWeb = false) {
       ready: await makeCliEngine(agent).isAvailable(),
       verified: agent.verified,
       notes: agent.notes,
+      models: agent.models,
     })),
   );
 
@@ -78,6 +89,7 @@ export async function engineStatus(probeWeb = false) {
       ready: probeWeb ? await makeWebEngine(recipe).isAvailable() : null,
       verified: recipe.verified,
       notes: recipe.notes,
+      models: [],
     })),
   );
 
@@ -92,6 +104,7 @@ export async function engineStatus(probeWeb = false) {
       ready: await apiEngine.isAvailable(),
       verified: false,
       notes: "종량제 API 키를 쓸 때만 필요하다. 구독제라면 안 써도 된다.",
+      models: [],
     },
     {
       id: googleEngine.id,
@@ -100,6 +113,7 @@ export async function engineStatus(probeWeb = false) {
       kind: "api" as const,
       ready: await googleEngine.isAvailable(),
       verified: false,
+      models: [],
       notes:
         "구독만 쓴다는 원칙의 의도적 예외 — 무료 한도 안에서만 쓰기로 한 경로다. " +
         "대량 작업은 구독 CLI로 돌릴 것.",

@@ -177,11 +177,40 @@ interface Message {
  * 지금 어느 단계에 있는지와 프로젝트 상태가 매번 서버로 같이 넘어가서,
  * "3번째 줄이 너무 길다" 같은 구체적인 말을 할 수 있다.
  */
+interface EngineRow {
+  id: string;
+  label: string;
+  kind: "cli" | "web" | "api";
+  ready: boolean | null;
+  models: Array<{ id: string; label: string; note: string }>;
+}
+
 function Assistant({ projectId, step }: { projectId: string; step: Step }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [engines, setEngines] = useState<EngineRow[]>([]);
+  const [engineId, setEngineId] = useState("");
+  const [model, setModel] = useState("");
+
+  /*
+    엔진 목록은 비서를 열 때 한 번만 가져온다. 목록을 뽑으려면 CLI마다 --version을
+    돌려봐야 해서 몇 초 걸린다 — 화면을 열 때마다 하면 안 된다.
+  */
+  useEffect(() => {
+    if (!open || engines.length > 0) return;
+    api<EngineRow[]>("/api/engines")
+      .then(setEngines)
+      .catch(() => setEngines([]));
+  }, [open, engines.length]);
+
+  const chosen = engines.find((e) => e.id === engineId);
+  // 엔진을 바꾸면 모델은 초기화한다. 클로드의 'opus'를 그록에 넘기면 실패한다.
+  const pickEngine = (id: string) => {
+    setEngineId(id);
+    setModel("");
+  };
 
   async function send() {
     const message = input.trim();
@@ -192,7 +221,7 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
     setBusy(true);
     try {
       const result = await api<{ answer: string }>(`/api/projects/${projectId}/assistant`, {
-        json: { message, step, history: messages.slice(-10) },
+        json: { message, step, history: messages.slice(-10), engineId, model },
       });
       setMessages((current) => [...current, { role: "assistant", content: result.answer }]);
     } catch (err) {
@@ -219,6 +248,40 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
         <strong>비서 · {STEP_LABEL[step]}</strong>
         <button className="sm" onClick={() => setOpen(false)}>닫기</button>
       </div>
+
+      {/*
+        어느 AI에게 물을지 고른다.
+
+        기본은 '자동'이다 — 쓸 수 있는 것 중 첫 번째를 서버가 고른다. 대부분은
+        그걸로 충분하고, 어느 CLI가 로그인돼 있는지 사용자가 외울 이유가 없다.
+        다만 모델은 답의 질이 눈에 띄게 갈리므로 고를 수 있어야 한다.
+      */}
+      <div className="assistant-pick">
+        <select value={engineId} onChange={(e) => pickEngine(e.target.value)}>
+          <option value="">자동 (쓸 수 있는 것)</option>
+          {engines.map((e) => (
+            <option key={e.id} value={e.id} disabled={e.ready === false}>
+              {e.label}
+              {e.ready === false ? " · 준비 안 됨" : ""}
+            </option>
+          ))}
+        </select>
+        {chosen && chosen.models.length > 0 && (
+          <select value={model} onChange={(e) => setModel(e.target.value)}>
+            <option value="">기본 모델</option>
+            {chosen.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+      {chosen?.models.find((m) => m.id === model) && (
+        <p className="assistant-note">
+          {chosen.models.find((m) => m.id === model)?.note}
+        </p>
+      )}
 
       <div className="assistant-log">
         {messages.length === 0 && (

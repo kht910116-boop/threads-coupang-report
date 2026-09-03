@@ -111,11 +111,16 @@ function pluck(value: unknown, dotPath: string): unknown {
     );
 }
 
-export function makeCliEngine(agent: AgentConfig): Engine {
+/**
+ * @param model 고른 모델 id. 비우면 CLI 기본값을 쓴다.
+ */
+export function makeCliEngine(agent: AgentConfig, model = ""): Engine {
+  const chosen = agent.models.find((m) => m.id === model);
   return {
     id: agent.id,
-    label: agent.label,
+    label: chosen ? `${agent.label} · ${chosen.label}` : agent.label,
     kind: "cli",
+    models: agent.models,
 
     async isAvailable() {
       try {
@@ -148,6 +153,13 @@ export function makeCliEngine(agent: AgentConfig): Engine {
         user: finalUser,
         schema: schema && agent.supportsSchema ? JSON.stringify(schema) : "",
       });
+
+      // 모델을 골랐을 때만 붙인다. 안 고르면 CLI가 자기 기본값을 쓴다.
+      if (chosen) {
+        args.push(
+          ...agent.modelArgs.map((a) => a.replace(/\{\{model\}\}/g, chosen.id)),
+        );
+      }
 
       let result: RunResult;
       try {

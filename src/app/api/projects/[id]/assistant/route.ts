@@ -22,6 +22,7 @@ const bodySchema = z.object({
     )
     .default([]),
   engineId: z.string().optional(),
+  model: z.string().optional(),
 });
 
 /**
@@ -36,8 +37,10 @@ export async function POST(request: Request, { params }: Params) {
     const project = await getProject(id);
     if (!project) throw new Error("프로젝트를 찾을 수 없습니다.");
 
-    const { message, step, history, engineId } = bodySchema.parse(await request.json());
-    const engine = await selectEngine(engineId);
+    const { message, step, history, engineId, model } = bodySchema.parse(
+      await request.json(),
+    );
+    const engine = await selectEngine(engineId, model);
 
     const answer = await engine.complete({
       system: `${ASSISTANT_SYSTEM}\n\n${assistantContext(project, STEP_LABEL[step])}`,
