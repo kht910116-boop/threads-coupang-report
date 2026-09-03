@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api-client";
+import { ART_STYLES, artStyleOf } from "@/lib/presets/art-styles";
 import {
   ASPECTS,
   CUT_MODES,
@@ -13,6 +14,21 @@ import {
   type Preset,
   type PresetInput,
 } from "@/lib/types";
+
+/** 화면비를 고를 때 그게 무슨 뜻인지 옆에 적어준다. */
+const ASPECT_HINT: Record<string, string> = {
+  "16:9": "가로 — 유튜브 일반 영상",
+  "9:16": "세로 — 쇼츠·릴스",
+  "1:1": "정사각 — 피드용",
+};
+
+/** 초를 사람이 읽는 길이로. 1620을 보고 27분을 떠올리는 사람은 없다. */
+function fmtLen(sec: number): string {
+  if (sec < 60) return `${sec}초`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s === 0 ? `${m}분` : `${m}분 ${s}초`;
+}
 
 function toInput(preset: Preset): PresetInput {
   const { id, createdAt, updatedAt, builtin, ...input } = preset;
@@ -69,6 +85,8 @@ export default function PresetsPage() {
   useEffect(() => {
     void reload().catch((err) => setError(String(err)));
   }, []);
+
+  const picked = artStyleOf(draft.image.prefix);
 
   function patch<K extends keyof PresetInput>(key: K, value: Partial<PresetInput[K]>) {
     setDraft((current) => ({
@@ -127,8 +145,9 @@ export default function PresetsPage() {
         </button>
       </div>
       <p className="dim">
-        스타일이 결과물의 핏을 잠급니다. 화면비·장면 간격·화풍·말투·자막·효과가 전부 여기서
-        결정됩니다.
+        스타일은 <strong>그림체와 말투</strong>를 정합니다. 같은 주제를 넣어도 스타일마다 다른
+        영상이 나오게 하는 값입니다. 장면 간격·자막 모양·무음 같은 수치는 그 값을 쓰는 단계
+        화면에서 바꾸는 편이 빠릅니다.
       </p>
 
       <div className="grid two" style={{ alignItems: "start" }}>
@@ -197,32 +216,71 @@ export default function PresetsPage() {
             />
           </div>
 
-          <div className="grid two">
-            <div className="field">
-              <label>화면비</label>
-              <select
-                value={draft.aspect}
-                onChange={(e) => setDraft({ ...draft, aspect: e.target.value as Preset["aspect"] })}
-              >
-                {ASPECTS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
+          <div className="seg-field">
+            <div className="seg-label">
+              <span>화면비</span>
+              <span className="seg-hint">{ASPECT_HINT[draft.aspect] ?? ""}</span>
             </div>
-            <div className="field">
-              <label>fps</label>
-              <input type="number" value={draft.fps}
-                onChange={(e) => setDraft({ ...draft, fps: Number(e.target.value) })} />
-            </div>
-            <div className="field">
-              <label>목표 길이(초)</label>
-              <input type="number" value={draft.targetDurationSec}
-                onChange={(e) => setDraft({ ...draft, targetDurationSec: Number(e.target.value) })} />
-            </div>
-            <div className="field">
-              <label>파트 개수</label>
-              <input type="number" value={draft.script.partCount}
-                onChange={(e) => patch("script", { partCount: Number(e.target.value) })} />
+            <div className="seg">
+              {ASPECTS.map((a) => (
+                <button
+                  key={a}
+                  className={draft.aspect === a ? "on" : ""}
+                  onClick={() => setDraft({ ...draft, aspect: a })}
+                >
+                  {a}
+                </button>
+              ))}
             </div>
           </div>
+
+          <div className="field">
+            <label>목표 길이 — {fmtLen(draft.targetDurationSec)}</label>
+            <input type="number" value={draft.targetDurationSec}
+              onChange={(e) => setDraft({ ...draft, targetDurationSec: Number(e.target.value) })} />
+          </div>
+
+          {/*
+            화풍은 영문 프롬프트 한 덩어리다. 빈 칸에 직접 쓰라고 하면 아무도 못 쓴다.
+            카드로 깔아 고르게 하고, 고른 뒤에 고치고 싶으면 고급에서 열면 된다.
+          */}
+          <div className="seg-field">
+            <div className="seg-label">
+              <span>그림체</span>
+              <span className="seg-hint">{picked ? picked.note : "직접 쓴 화풍"}</span>
+            </div>
+            <div className="art-grid">
+              {ART_STYLES.map((style) => (
+                <button
+                  key={style.id}
+                  className={`art ${picked?.id === style.id ? "on" : ""}`}
+                  onClick={() => patch("image", { prefix: style.prompt })}
+                  title={style.prompt}
+                >
+                  <strong>{style.name}</strong>
+                  <span>{style.note}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <label>화자 — 누가 말하는지</label>
+            <input value={draft.script.persona}
+              onChange={(e) => patch("script", { persona: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>말투 — 어떻게 말하는지</label>
+            <textarea rows={2} value={draft.script.tone}
+              onChange={(e) => patch("script", { tone: e.target.value })} />
+          </div>
+
+          {/*
+            나머지는 대부분 프리셋이 이미 정해둔 값이고, 고칠 일이 있으면 그 값을 쓰는
+            단계 화면에서 고치는 편이 낫다. 여기서는 접어둔다.
+          */}
+          <details className="adv">
+            <summary>고급 설정 — 장면 간격 · 이미지 · 영상 · 음성 · 자막 · 효과</summary>
 
           <h3 style={{ marginTop: 16 }}>장면 간격 (초)</h3>
           <p className="dim" style={{ marginTop: 0 }}>
@@ -259,15 +317,17 @@ export default function PresetsPage() {
           ))}
 
           <h3 style={{ marginTop: 16 }}>대본</h3>
-          <div className="field">
-            <label>화자</label>
-            <input value={draft.script.persona}
-              onChange={(e) => patch("script", { persona: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>말투</label>
-            <textarea rows={2} value={draft.script.tone}
-              onChange={(e) => patch("script", { tone: e.target.value })} />
+          <div className="grid two">
+            <div className="field">
+              <label>파트 개수</label>
+              <input type="number" value={draft.script.partCount}
+                onChange={(e) => patch("script", { partCount: Number(e.target.value) })} />
+            </div>
+            <div className="field">
+              <label>fps</label>
+              <input type="number" value={draft.fps}
+                onChange={(e) => setDraft({ ...draft, fps: Number(e.target.value) })} />
+            </div>
           </div>
           <div className="field">
             <label>자막 한 줄 글자수 (최소 / 최대)</label>
@@ -447,6 +507,8 @@ export default function PresetsPage() {
                 })} />
             <small>쓸 수 있는 값: {SCENE_EFFECTS.join(", ")}</small>
           </div>
+
+          </details>
 
           {error && <div className="notice error">{error}</div>}
           {info && <div className="notice ok">{info}</div>}
