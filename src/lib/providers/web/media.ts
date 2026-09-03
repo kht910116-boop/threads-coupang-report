@@ -141,20 +141,37 @@ export const DEFAULT_MEDIA_RECIPES: MediaRecipe[] = [
     id: "typecast-web",
     label: "타입캐스트 음성 (구독)",
     kind: "audio",
-    // 편집기는 typecast.ai가 아니라 **studio.typecast.ai**에 있다. 예전 값
-    // "https://typecast.ai/"는 마케팅 페이지였고 /kr/editor는 404다.
+    /*
+     * 편집기는 typecast.ai가 아니라 **studio.typecast.ai**에 있다. 예전 값
+     * "https://typecast.ai/"는 마케팅 페이지였고 /kr/editor는 404다.
+     *
+     * 그리고 이 주소(/text-to-speech)는 **프로젝트 목록**이라 입력창이 없다.
+     * 편집기는 /text-to-speech/<프로젝트id>다. Flow와 같은 구조라, 자기 프로젝트를
+     * 하나 만들고 그 주소로 바꿔야 한다.
+     */
     url: "https://studio.typecast.ai/text-to-speech",
-    promptSelector: "textarea, div[contenteditable='true']",
+    // Slate 에디터다. 클래스가 Tailwind 임의값이라 못 쓰고 이 속성이 안전하다. 확인함.
+    promptSelector: "div[data-slate-editor='true']",
     submit: "enter",
     extract: "download",
     resultSelector: "audio",
-    downloadSelector: "button:has-text('다운로드'), button:has-text('Download')",
+    // 버튼에 한국어 aria-label이 제대로 붙어 있다. UI 언어를 영어로 바꾸면 이것도 바뀐다.
+    downloadSelector: "button[aria-label='다운로드']",
     preClickSelectors: [],
     timeoutMs: 300000,
     settleMs: 1000,
-    loggedInSelector: "",
+    loggedInSelector: "div[data-slate-editor='true']",
     verified: false,
-    notes: UNVERIFIED,
+    /*
+     * 편집기에 세밀한 조작이 aria-label 달린 버튼으로 다 있다. 나중에 붙일 때 쓸 것:
+     *   button[aria-label='속도']  '감정'  '피치'  '끝음 조절'
+     *   button[aria-label='발음 지정하기']   button[aria-label='음성 재생성']
+     * 레퍼런스 사이트의 발음 검수와 같은 기능이 여기에도 있다는 뜻이다.
+     */
+    notes:
+      "입력창과 다운로드 버튼은 실제 편집기에서 확인했다. url을 자기 프로젝트 주소로 " +
+      "바꿔야 한다(/text-to-speech/<id>). 합성이 무엇으로 시작되는지(엔터인지 재생인지)와 " +
+      "다운로드 버튼을 누른 뒤 형식 고르는 창이 뜨는지는 미검증이다.",
   },
 ];
 
