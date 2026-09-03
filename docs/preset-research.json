@@ -1,0 +1,654 @@
+[
+ {
+  "id": "economy-current-affairs",
+  "name": "경제시사다큐",
+  "description": "경제 현상을 데이터와 맥락으로 해설한다.",
+  "aspect": "16:9",
+  "targetDurationSec": 1500,
+  "partCount": 5,
+  "charsPerLine": {
+   "min": 12,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    2,
+    4
+   ],
+   "part": [
+    5,
+    7
+   ],
+   "closing": [
+    6,
+    9
+   ]
+  },
+  "persona": "자료를 교차 검증하는 냉철한 경제 해설자다.",
+  "tone": "단정 대신 수치와 인과관계로 차분하게 설명한다.",
+  "avoid": [
+   "출처 없는 통계",
+   "정치적 선동",
+   "과도한 전문용어",
+   "투자 수익 보장"
+  ],
+  "artStyle": "차트와 지도, 보도사진을 섞은 절제된 시사 다큐 스타일.",
+  "hook": "첫 5초에 충격적인 수치와 핵심 질문을 함께 제시한다.",
+  "sources": [
+   "themeasure.net",
+   "blog.youtube",
+   "partnerhelp.netflixstudios.com",
+   "thebeansmedia.com"
+  ],
+  "_cat": "longform"
+ },
+ {
+  "id": "company-deep-dive",
+  "name": "기업해부다큐",
+  "description": "한 기업의 성장과 위기를 서사로 추적한다.",
+  "aspect": "16:9",
+  "targetDurationSec": 1800,
+  "partCount": 6,
+  "charsPerLine": {
+   "min": 12,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    2,
+    4
+   ],
+   "part": [
+    5,
+    8
+   ],
+   "closing": [
+    6,
+    9
+   ]
+  },
+  "persona": "기업의 전략과 숫자를 추적하는 비즈니스 탐사자다.",
+  "tone": "흥미로운 서사를 유지하되 평가와 사실을 분리한다.",
+  "avoid": [
+   "기업 홍보 문구",
+   "근거 없는 음모론",
+   "현재와 과거 실적 혼용",
+   "창업자 영웅화"
+  ],
+  "artStyle": "기업 자료와 제품 이미지를 활용한 세련된 비즈니스 다큐 스타일.",
+  "hook": "첫 5초에 기업의 현재 결과와 숨은 반전을 대비시킨다.",
+  "sources": [
+   "longformstudio.app",
+   "3rdandlamar.com",
+   "partnerhelp.netflixstudios.com",
+   "instantviews.net"
+  ],
+  "_cat": "longform"
+ },
+ {
+  "id": "case-reconstruction",
+  "name": "사건재구성",
+  "description": "실제 사건의 시간선과 단서를 재구성한다.",
+  "aspect": "16:9",
+  "targetDurationSec": 2100,
+  "partCount": 7,
+  "charsPerLine": {
+   "min": 10,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    2,
+    5
+   ],
+   "part": [
+    6,
+    10
+   ],
+   "closing": [
+    7,
+    12
+   ]
+  },
+  "persona": "확인된 기록만 따라가는 침착한 사건 내레이터다.",
+  "tone": "긴장감은 유지하되 선정적 표현과 단정을 삼간다.",
+  "avoid": [
+   "피해자 신상 노출",
+   "잔혹 장면 반복",
+   "미확인 범인 지목",
+   "허구를 사실처럼 제시",
+   "과도한 효과음"
+  ],
+  "artStyle": "저채도 기록사진과 시간선 그래픽을 결합한 탐사 다큐 스타일.",
+  "hook": "첫 5초에 결정적 순간을 보여주고 풀리지 않은 질문을 던진다.",
+  "sources": [
+   "retentionyt.com",
+   "blog.youtube",
+   "partnerhelp.netflixstudios.com",
+   "onira.studio"
+  ],
+  "_cat": "longform"
+ },
+ {
+  "id": "issue-context-explainer",
+  "name": "이슈 맥락 해설",
+  "description": "쟁점의 배경과 영향을 근거로 풀어낸다.",
+  "aspect": "16:9",
+  "targetDurationSec": 720,
+  "partCount": 4,
+  "charsPerLine": {
+   "min": 12,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    5,
+    10
+   ],
+   "part": [
+    10,
+    20
+   ],
+   "closing": [
+    12,
+    20
+   ]
+  },
+  "persona": "자료를 검증해 맥락과 파장을 설명하는 분석자다.",
+  "tone": "차분한 존댓말로 사실과 해석을 분리한다.",
+  "avoid": [
+   "출처 없는 단정",
+   "정파적 선동",
+   "긴 채널 인트로",
+   "같은 화면 반복"
+  ],
+  "artStyle": "뉴스 사진풍 이미지와 지도·도표를 섞은 절제된 에디토리얼 스타일.",
+  "hook": "첫 10초에 핵심 장면과 이 사안이 중요한 이유를 제시한다.",
+  "sources": [
+   "longformstudio.app",
+   "air.io",
+   "voicedeck.io",
+   "support.google.com"
+  ],
+  "_cat": "midform"
+ },
+ {
+  "id": "comparison-curation",
+  "name": "비교 큐레이션",
+  "description": "제품과 자료를 기준별로 비교해 추천한다.",
+  "aspect": "16:9",
+  "targetDurationSec": 600,
+  "partCount": 5,
+  "charsPerLine": {
+   "min": 10,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    3,
+    5
+   ],
+   "part": [
+    5,
+    8
+   ],
+   "closing": [
+    6,
+    10
+   ]
+  },
+  "persona": "직접 검토한 대상을 기준별로 판정하는 실용 리뷰어다.",
+  "tone": "장단점을 짧고 구체적으로 말하며 결론을 미루지 않는다.",
+  "avoid": [
+   "협찬 사실 은폐",
+   "근거 없는 순위",
+   "사양표 낭독",
+   "모든 대상을 칭찬하기"
+  ],
+  "artStyle": "제품 실사풍 컷과 비교표를 빠르게 교차하는 선명한 잡지형 스타일.",
+  "hook": "첫 5초에 최종 추천과 가장 큰 선택 기준을 먼저 공개한다.",
+  "sources": [
+   "channel.farm",
+   "pixflow.net",
+   "voicedeck.io",
+   "support.google.com"
+  ],
+  "_cat": "midform"
+ },
+ {
+  "id": "step-by-step-tutorial",
+  "name": "따라하기 튜토리얼",
+  "description": "하나의 과제를 단계별 시연으로 완성한다.",
+  "aspect": "16:9",
+  "targetDurationSec": 600,
+  "partCount": 5,
+  "charsPerLine": {
+   "min": 10,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    5,
+    8
+   ],
+   "part": [
+    10,
+    20
+   ],
+   "closing": [
+    8,
+    15
+   ]
+  },
+  "persona": "초보자의 화면과 실수를 예상하며 안내하는 실무 강사다.",
+  "tone": "짧은 명령형 존댓말로 한 번에 한 동작만 설명한다.",
+  "avoid": [
+   "결과 없는 긴 서론",
+   "단계 생략",
+   "작은 화면 글씨",
+   "검증하지 않은 단축키",
+   "과도한 화면 확대"
+  ],
+  "artStyle": "화면 캡처와 확대 콜아웃을 중심으로 한 깔끔한 매뉴얼 스타일.",
+  "hook": "첫 8초에 완성 결과를 보여주고 필요한 준비물을 알린다.",
+  "sources": [
+   "prepublish.ai",
+   "air.io",
+   "voicedeck.io",
+   "support.google.com"
+  ],
+  "_cat": "midform"
+ },
+ {
+  "id": "issue-hook",
+  "name": "이슈 훅형",
+  "description": "화제의 핵심과 반전을 빠르게 전달한다.",
+  "aspect": "9:16",
+  "targetDurationSec": 20,
+  "partCount": 2,
+  "charsPerLine": {
+   "min": 7,
+   "max": 12
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    2
+   ],
+   "part": [
+    2,
+    3
+   ],
+   "closing": [
+    1,
+    2
+   ]
+  },
+  "persona": "이슈의 결정적 장면을 먼저 포착한 해설자다.",
+  "tone": "짧고 단정하게 말하되 확인된 사실과 해석을 구분한다.",
+  "avoid": [
+   "느린 인사말",
+   "출처 없는 단정",
+   "과장된 공포 조장",
+   "같은 화면 반복"
+  ],
+  "artStyle": "고대비 뉴스 그래픽과 현장 이미지를 빠르게 교차한다.",
+  "hook": "첫 1초에 가장 충격적인 결과를 보여주고 이유를 예고한다.",
+  "sources": [
+   "quso.ai",
+   "capcut.com",
+   "viewmade.com",
+   "partnerhelp.netflixstudios.com"
+  ],
+  "_cat": "shortform"
+ },
+ {
+  "id": "numbered-list",
+  "name": "N가지 리스트",
+  "description": "한 주제를 번호별 핵심 정보로 정리한다.",
+  "aspect": "9:16",
+  "targetDurationSec": 45,
+  "partCount": 5,
+  "charsPerLine": {
+   "min": 8,
+   "max": 14
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    3
+   ],
+   "part": [
+    5,
+    7
+   ],
+   "closing": [
+    2,
+    3
+   ]
+  },
+  "persona": "복잡한 정보를 빠르게 선별해 주는 큐레이터다.",
+  "tone": "번호를 먼저 말하고 각 항목은 한 문장으로 끝낸다.",
+  "avoid": [
+   "항목 수 숨기기",
+   "항목 간 내용 중복",
+   "긴 배경 설명",
+   "복수 행동 유도"
+  ],
+  "artStyle": "큰 번호와 단순 아이콘을 활용한 선명한 인포그래픽풍이다.",
+  "hook": "첫 3초 안에 항목 수와 가장 큰 효익을 함께 제시한다.",
+  "sources": [
+   "digiwebinsight.com",
+   "clickyapps.com",
+   "capcut.com",
+   "partnerhelp.netflixstudios.com"
+  ],
+  "_cat": "shortform"
+ },
+ {
+  "id": "knowledge-bite",
+  "name": "지식 한 토막",
+  "description": "질문 하나를 짧은 원리와 사례로 푼다.",
+  "aspect": "9:16",
+  "targetDurationSec": 30,
+  "partCount": 3,
+  "charsPerLine": {
+   "min": 8,
+   "max": 14
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    3
+   ],
+   "part": [
+    3,
+    5
+   ],
+   "closing": [
+    2,
+    4
+   ]
+  },
+  "persona": "어려운 개념을 일상 사례로 설명하는 지식 해설자다.",
+  "tone": "질문·원리·사례 순서로 쉽고 정확하게 설명한다.",
+  "avoid": [
+   "전문용어 남발",
+   "여러 개념 혼합",
+   "근거 없는 상식",
+   "긴 구독 요청"
+  ],
+  "artStyle": "단순 도식과 사물 클로즈업을 섞은 교육 애니메이션풍이다.",
+  "hook": "첫 3초에 의외의 질문이나 통념을 뒤집는 사실을 던진다.",
+  "sources": [
+   "quso.ai",
+   "digiwebinsight.com",
+   "capcut.com",
+   "partnerhelp.netflixstudios.com"
+  ],
+  "_cat": "shortform"
+ },
+ {
+  "id": "flash-deal-short",
+  "name": "초특가 딜 쇼츠",
+  "description": "가격 하락과 할인 조건을 즉시 알려준다.",
+  "aspect": "9:16",
+  "targetDurationSec": 15,
+  "partCount": 2,
+  "charsPerLine": {
+   "min": 6,
+   "max": 11
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    2
+   ],
+   "part": [
+    1,
+    3
+   ],
+   "closing": [
+    2,
+    3
+   ]
+  },
+  "persona": "가격을 매일 추적하는 생활형 딜 큐레이터다.",
+  "tone": "결론부터 짧게 말하고 가격과 조건은 숫자로 읽는다.",
+  "avoid": [
+   "가짜 품절 임박",
+   "정가만 강조하기",
+   "할인 조건 누락",
+   "제휴 사실 숨기기"
+  ],
+  "artStyle": "고대비 가격표와 실사 제품 클로즈업을 결합한다.",
+  "hook": "첫 2초에 할인율과 최종 결제가를 크게 보여준다.",
+  "sources": [
+   "bigcommerce.com",
+   "blinkfire.com",
+   "captionplug.com",
+   "support.google.com"
+  ],
+  "_cat": "shopping"
+ },
+ {
+  "id": "ugc-product-demo",
+  "name": "실사용 리뷰 쇼츠",
+  "description": "문제를 제시하고 제품 효과를 직접 검증한다.",
+  "aspect": "9:16",
+  "targetDurationSec": 45,
+  "partCount": 3,
+  "charsPerLine": {
+   "min": 7,
+   "max": 11
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    3
+   ],
+   "part": [
+    2,
+    3
+   ],
+   "closing": [
+    2,
+    4
+   ]
+  },
+  "persona": "직접 구매해 써본 현실적인 소비자 리뷰어다.",
+  "tone": "친근하게 말하되 장점과 한계를 구체적으로 구분한다.",
+  "avoid": [
+   "효과 과장",
+   "사용 장면 생략",
+   "단점 은폐",
+   "무관한 상품 태그",
+   "제휴 고지 누락"
+  ],
+  "artStyle": "스마트폰 촬영 질감에 손동작과 결과 비교 컷을 강조한다.",
+  "hook": "첫 3초에 불편한 상황이나 사용 후 결과부터 보여준다.",
+  "sources": [
+   "shopify.com",
+   "thingortwo.com",
+   "influee.co",
+   "captionplug.com"
+  ],
+  "_cat": "shopping"
+ },
+ {
+  "id": "affiliate-buying-guide",
+  "name": "구매가이드 리뷰",
+  "description": "제품을 비교 검증해 구매 대상을 판별한다.",
+  "aspect": "16:9",
+  "targetDurationSec": 480,
+  "partCount": 4,
+  "charsPerLine": {
+   "min": 10,
+   "max": 16
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    3,
+    5
+   ],
+   "part": [
+    5,
+    10
+   ],
+   "closing": [
+    5,
+    8
+   ]
+  },
+  "persona": "사양과 실사용 데이터를 함께 검증하는 전문 리뷰어다.",
+  "tone": "판단 기준을 먼저 밝히고 근거와 추천 대상을 명료하게 말한다.",
+  "avoid": [
+   "스펙표 낭독",
+   "경쟁 제품 비방",
+   "검증 없는 단정",
+   "모든 시청자에게 추천",
+   "제휴 고지 누락"
+  ],
+  "artStyle": "깔끔한 스튜디오 제품 컷과 비교표 및 실험 화면을 조합한다.",
+  "hook": "첫 5초에 최종 평가와 가장 큰 장단점을 먼저 공개한다.",
+  "sources": [
+   "tubeai.app",
+   "pixflow.net",
+   "netflixstudios.com",
+   "support.google.com"
+  ],
+  "_cat": "shopping"
+ },
+ {
+  "id": "clip-highlight-compilation",
+  "name": "클립 하이라이트",
+  "description": "주제별 핵심 클립을 해설과 함께 엮는다.",
+  "aspect": "16:9",
+  "targetDurationSec": 600,
+  "partCount": 8,
+  "charsPerLine": {
+   "min": 14,
+   "max": 23
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    3
+   ],
+   "part": [
+    3,
+    7
+   ],
+   "closing": [
+    4,
+    8
+   ]
+  },
+  "persona": "맥락과 선정 이유를 덧붙이는 전문 큐레이터다.",
+  "tone": "짧고 단정하게 설명하며 클립보다 앞서 말하지 않는다.",
+  "avoid": [
+   "무해설 원본 재업로드",
+   "출처와 사용권 미확인",
+   "긴 로고 인트로",
+   "비슷한 클립 반복",
+   "충격 장면의 과도한 사용"
+  ],
+  "artStyle": "실사 클립에 굵은 자막과 순위 그래픽을 절제해 얹는다.",
+  "hook": "첫 3초 안에 가장 강한 장면과 결과 예고를 먼저 보여준다.",
+  "sources": [
+   "support.google.com",
+   "negabaro.com",
+   "partnerhelp.netflixstudios.com",
+   "themarketingcrowd.ie"
+  ],
+  "_cat": "mashup"
+ },
+ {
+  "id": "captioned-incident-recap",
+  "name": "자막 사건정리",
+  "description": "사건의 발단부터 결말까지 자막으로 압축한다.",
+  "aspect": "9:16",
+  "targetDurationSec": 60,
+  "partCount": 5,
+  "charsPerLine": {
+   "min": 7,
+   "max": 13
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    2
+   ],
+   "part": [
+    2,
+    4
+   ],
+   "closing": [
+    2,
+    4
+   ]
+  },
+  "persona": "확인된 사실만 시간순으로 정리하는 사건 브리퍼다.",
+  "tone": "짧은 문장으로 긴장감을 유지하되 단정적 추측은 피한다.",
+  "avoid": [
+   "미확인 사실 단정",
+   "낚시성 왜곡",
+   "피해자 신상 노출",
+   "출처 없는 화면",
+   "읽기 어려운 장문 자막"
+  ],
+  "artStyle": "세로형 자료 화면에 고대비 자막과 타임라인을 배치한다.",
+  "hook": "첫 2초에 결정적 장면과 핵심 의문을 한 줄로 제시한다.",
+  "sources": [
+   "support.google.com",
+   "vidiq.com",
+   "partnerhelp.netflixstudios.com",
+   "themarketingcrowd.ie"
+  ],
+  "_cat": "mashup"
+ },
+ {
+  "id": "reaction-short-montage",
+  "name": "리액션 숏모음",
+  "description": "여러 사람의 반응과 결정적 순간을 빠르게 잇는다.",
+  "aspect": "9:16",
+  "targetDurationSec": 30,
+  "partCount": 4,
+  "charsPerLine": {
+   "min": 7,
+   "max": 12
+  },
+  "sceneIntervalSec": {
+   "hookIntro": [
+    1,
+    2
+   ],
+   "part": [
+    1,
+    3
+   ],
+   "closing": [
+    2,
+    3
+   ]
+  },
+  "persona": "반응의 차이와 재미를 짚어주는 유쾌한 진행자다.",
+  "tone": "감탄은 짧게 쓰고 매 반응마다 새 관찰을 덧붙인다.",
+  "avoid": [
+   "무언 리액션만 나열",
+   "원본 음원 장시간 사용",
+   "과장된 가짜 반응",
+   "동일 장면 반복",
+   "화면을 가리는 자막"
+  ],
+  "artStyle": "분할 실사 화면에 표정 확대와 팝업 자막을 빠르게 넣는다.",
+  "hook": "첫 2초에 가장 큰 반응을 보여준 뒤 원인을 즉시 예고한다.",
+  "sources": [
+   "vidiq.com",
+   "support.google.com",
+   "clipchamp.com",
+   "partnerhelp.netflixstudios.com"
+  ],
+  "_cat": "mashup"
+ }
+]
