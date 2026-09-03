@@ -177,6 +177,76 @@ const storyboardResponseSchema = z.object({
  * 파트별 장면 간격에서 앱이 계산한다. 모델은 이미 정해진 씬에 그림만 붙인다.
  * 그래야 길이 기준이 지켜진다.
  */
+interface DescribedScene {
+  index: number;
+  sectionLabel: string;
+  durationSec: number;
+  narration: string;
+}
+
+/**
+ * 한 번에 몇 장면씩 물어볼지.
+ *
+ * 27분짜리 대본은 장면이 95개가 나오는데, 그걸 한 번에 요청했더니 모델이 97개를
+ * 돌려줬다. 개수가 어긋나면 장면과 프롬프트가 밀려서 전부 못 쓴다. 6분을 통째로
+ * 날리고 처음부터 다시 해야 했다.
+ *
+ * 20~30개 정도면 모델이 개수를 정확히 지키고, 한 묶음이 틀려도 그 묶음만 다시 부른다.
+ */
+const STORYBOARD_BATCH = 24;
+
+/** 뒤 묶음에 넘겨줄 앞 장면 개수. 인물·장소 문구를 이어받게 하는 용도다. */
+const CONSISTENCY_CARRY = 8;
+
+/**
+ * 장면 묘사를 나눠서 받아온다.
+ *
+ * 나눠 부르면 뒤 묶음이 앞 묶음을 못 보므로, 앞에서 쓴 프롬프트 몇 개를 같이 넘겨
+ * 같은 인물·장소를 같은 문구로 쓰게 한다. 그림 일관성은 이 앱에서 포기할 수 없는
+ * 부분이라(HANDOFF 참고) 나누는 대가로 이걸 붙였다.
+ */
+async function describeInBatches(
+  engine: Engine,
+  project: Project,
+  described: DescribedScene[],
+): Promise<Array<z.infer<typeof scenePlanSchema>>> {
+  const system = storyboardSystemPrompt(project);
+  const out: Array<z.infer<typeof scenePlanSchema>> = [];
+
+  for (let from = 0; from < described.length; from += STORYBOARD_BATCH) {
+    const batch = described.slice(from, from + STORYBOARD_BATCH);
+    const earlier = out
+      .slice(-CONSISTENCY_CARRY)
+      .map((plan, i) => ({ index: from - Math.min(CONSISTENCY_CARRY, out.length) + i, prompt: plan.prompt }));
+
+    // 개수가 어긋나는 건 대체로 한 번 더 부르면 맞는다. 묶음 하나라 다시 부르는 값도 싸다.
+    let parsed: z.infer<typeof storyboardResponseSchema> | null = null;
+    let lastCount = -1;
+    for (let attempt = 0; attempt < 2 && parsed === null; attempt += 1) {
+      const raw = await engine.complete({
+        system,
+        user: storyboardUserPrompt({ project, scenes: batch, earlier }),
+        schema: toSchema(storyboardResponseSchema),
+      });
+      const candidate = storyboardResponseSchema.parse(extractJson(raw));
+      if (candidate.scenes.length === batch.length) parsed = candidate;
+      else lastCount = candidate.scenes.length;
+    }
+
+    if (parsed === null) {
+      const at = `${from + 1}~${from + batch.length}번`;
+      throw new Error(
+        `장면 ${at} 묶음에서 개수가 맞지 않습니다. ${batch.length}개를 요청했는데 ${lastCount}개가 왔습니다.\n` +
+          `앞의 ${from}개는 만들어졌습니다. 다시 시도하면 처음부터 만듭니다.`,
+      );
+    }
+
+    out.push(...parsed.scenes);
+  }
+
+  return out;
+}
+
 export async function generateStoryboard(
   engine: Engine,
   project: Project,
@@ -208,18 +278,7 @@ export async function generateStoryboard(
     };
   });
 
-  const raw = await engine.complete({
-    system: storyboardSystemPrompt(project),
-    user: storyboardUserPrompt({ project, scenes: described }),
-    schema: toSchema(storyboardResponseSchema),
-  });
-
-  const parsed = storyboardResponseSchema.parse(extractJson(raw));
-  if (parsed.scenes.length !== groups.length) {
-    throw new Error(
-      `장면 개수가 맞지 않습니다. ${groups.length}개를 요청했는데 ${parsed.scenes.length}개가 왔습니다. 다시 시도해 주세요.`,
-    );
-  }
+  const plans = await describeInBatches(engine, project, described);
 
   // 잠근 씬은 내용을 그대로 살린다.
   const lockedByIndex = new Map(
@@ -229,7 +288,7 @@ export async function generateStoryboard(
 
   return groups.map((group, index) => {
     const locked = lockedByIndex.get(index);
-    const plan = parsed.scenes[index];
+    const plan = plans[index];
     const effect = project.effects.rotate
       ? rotation[index % Math.max(1, rotation.length)]
       : project.effects.defaultEffect;

@@ -15,6 +15,83 @@ const COMMON_SUFFIX =
   "Single still frame, no panels, no overlaid subtitles or title cards. No watermark. If any text appears, it must be Korean only.";
 
 export const DEFAULT_PRESETS: Array<{ id: string } & Seed> = [
+  /**
+   * 롱폼 경제 다큐.
+   *
+   * 아래 숫자는 짐작이 아니라 **실제 원고에서 잰 값**이다. eatconomy 채널의
+   * 9,415자짜리 대본을 넣어 재보니 이렇게 나왔다.
+   *   - 27분 3초 (5.8자/초 기준)
+   *   - 구간 14개 — 훅 1 · 인트로 1 · 파트 8 · 행동유도 2 · 클로징 2
+   *   - 자막 줄 455개, 길이 중앙값 21자 (25% 16자 / 75% 25자 / 최대 34자)
+   *
+   * 기존 '화이트보드 · 다큐 해설'은 목표 180초에 파트 4개라 롱폼에 전혀 안 맞았다.
+   * 화풍과 장면 간격은 그쪽과 같게 두었다 — 그림체는 이미 맞고, 간격도 레퍼런스가
+   * 같은 값(훅+인트로 8~13초 / 파트 12~22초)을 쓰고 있었다.
+   */
+  {
+    id: "longform-doc",
+    name: "롱폼 · 경제 다큐 해설",
+    description:
+      "20~30분 손그림 해설. 사건을 파트로 나눠 근거를 쌓고 마지막에 뒤집는다.",
+    aspect: "16:9",
+    fps: 30,
+    // 실측 27분 3초. ±15% 허용이므로 23~31분이 목표 범위가 된다.
+    targetDurationSec: 1620,
+    script: {
+      language: "ko",
+      persona: "근거를 먼저 대고 결론을 내리는 해설자",
+      tone: "차분한 존댓말. 한 문장에 한 가지만.",
+      // 실측 8개.
+      partCount: 8,
+      // 실측 중앙 21자 / 75% 25자. 34자짜리도 있지만 여섯 줄뿐이라 상한은 30으로 둔다.
+      charsPerLine: { min: 14, max: 30 },
+      avoid: ["단정적 예측", "감정적 수사", "출처 불명 수치", "영어 병기"],
+    },
+    intervals: {
+      hookIntro: { min: 8, max: 13 },
+      part: { min: 12, max: 22 },
+      closing: { min: 12, max: 22 },
+    },
+    image: {
+      provider: "manual",
+      model: "",
+      prefix:
+        "Hand-drawn minimalist sketch style, whiteboard animation aesthetic, clean ink linework with soft watercolor wash, muted sepia and earth-tone palette, warm aged paper texture background, simple stick-figure characters with round heads, dot eyes and contextual clothing, detailed architectural backgrounds in loose watercolor with isometric perspective, editorial documentary illustration feel, one key focal object per scene in vivid saturated color as a dramatic spotlight against the muted sepia",
+      suffix: COMMON_SUFFIX,
+      negativePrompt: "text, watermark, photorealistic, cluttered composition",
+    },
+    video: { defaultMode: "image", provider: "manual", model: "" },
+    tts: {
+      provider: "manual",
+      model: "",
+      voiceId: "",
+      speed: 1.0,
+      pitch: 0,
+      leadSilenceMs: 400,
+      tailSilenceMs: 700,
+      gapMs: 200,
+      sectionGapMs: 500,
+    },
+    caption: {
+      enabled: true,
+      fontFamily: "Pretendard",
+      fontSize: 10,
+      color: "#FFFFFF",
+      strokeColor: "#000000",
+      strokeWidth: 0.08,
+      position: "bottom",
+      marginRatio: 0.1,
+      // 레퍼런스에서 '적게'를 고르면 나오는 값이다.
+      maxCharsPerLine: 20,
+    },
+    effects: {
+      defaultEffect: "fade",
+      transitionSec: 0.45,
+      kenBurns: { enabled: true, scaleFrom: 1.0, scaleTo: 1.08 },
+      rotate: true,
+      rotation: ["fade", "dissolve", "zoomIn", "panRight", "zoomOut", "panLeft"],
+    },
+  },
   {
     id: "whiteboard-doc",
     name: "화이트보드 · 다큐 해설",

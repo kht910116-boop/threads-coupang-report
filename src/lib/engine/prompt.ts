@@ -218,14 +218,36 @@ export function storyboardSystemPrompt(project: Project): string {
 export function storyboardUserPrompt(args: {
   project: Project;
   scenes: Array<{ index: number; sectionLabel: string; durationSec: number; narration: string }>;
+  /**
+   * 앞 묶음에서 이미 만든 장면 몇 개.
+   *
+   * 장면이 많으면 한 번에 못 부르고 나눠 부르는데, 그러면 뒤 묶음이 앞 묶음을 못 봐서
+   * 같은 인물이 장면마다 다른 사람이 된다. 그걸 막으려고 앞에서 쓴 문구를 넘겨준다.
+   */
+  earlier?: Array<{ index: number; prompt: string }>;
 }): string {
-  const { project, scenes } = args;
+  const { project, scenes, earlier } = args;
 
-  return [
+  const parts = [
     `영상 제목: ${project.title || project.topic}`,
     `한 줄 요약: ${project.summary}`,
     "",
-    `장면 ${scenes.length}개. 순서대로 전부 만들어라.`,
+  ];
+
+  if (earlier && earlier.length > 0) {
+    parts.push(
+      "## 앞에서 이미 만든 장면 (참고용 — 다시 만들지 마라)",
+      "같은 인물·장소가 아래에 나왔다면 **여기 쓰인 문구를 그대로 가져다 써라.**",
+      "새로 지어내면 같은 사람이 다른 사람으로 보인다.",
+      "",
+      ...earlier.map((s) => `- 장면 ${s.index + 1}: ${s.prompt}`),
+      "",
+    );
+  }
+
+  parts.push(
+    `이제 만들 장면은 아래 ${scenes.length}개다. **정확히 ${scenes.length}개**를 순서대로 만들어라.`,
+    "하나도 빠뜨리지 말고, 하나도 더 만들지 마라.",
     "",
     ...scenes.map((scene) =>
       [
@@ -233,7 +255,9 @@ export function storyboardUserPrompt(args: {
         scene.narration,
       ].join("\n"),
     ),
-  ].join("\n");
+  );
+
+  return parts.join("\n");
 }
 
 /** 화풍 접두·접미를 붙여 최종 이미지 프롬프트를 만든다. */
