@@ -78,6 +78,44 @@ function balanceTail(
   }
 }
 
+/**
+ * 파트가 진행될수록 장면을 조금씩 빠르게 한다.
+ *
+ * 같은 파트 간격을 처음부터 끝까지 그대로 쓰면 뒤로 갈수록 늘어진다. 이야기는
+ * 뒤로 갈수록 조여야 하는데 화면은 같은 속도로 머문다. 그래서 뒤 파트일수록
+ * 상한을 최소치 쪽으로 당긴다 — 마지막 파트가 가장 빠르다.
+ *
+ * **상한은 여전히 무조건 지킨다.** 당기기만 하지 늘리지 않으므로 원래 상한을
+ * 넘는 장면은 생기지 않는다(HANDOFF의 불변식).
+ *
+ * 훅·인트로와 클로징은 건드리지 않는다. 훅은 원래 빠르고 클로징은 여운이 필요하다.
+ */
+const TENSION = 0.45;
+
+export function tensionRange(
+  section: ScriptSection,
+  intervals: Intervals,
+  partOrder: number,
+  partCount: number,
+): { min: number; max: number } {
+  const base = intervals[intervalGroupOf(section.kind)];
+  if (section.kind !== "part" || partCount <= 1 || partOrder < 0) return base;
+
+  const t = partOrder / (partCount - 1); // 첫 파트 0 → 마지막 파트 1
+  const max = base.max - (base.max - base.min) * TENSION * t;
+  return { min: base.min, max: Math.max(base.min, max) };
+}
+
+/** 파트 구간만 순서대로 세어 각 파트가 몇 번째인지 알려준다. */
+function partOrderMap(sections: ScriptSection[]): { order: Map<string, number>; count: number } {
+  const order = new Map<string, number>();
+  let n = 0;
+  for (const section of [...sections].sort((a, b) => a.order - b.order)) {
+    if (section.kind === "part") order.set(section.id, n++);
+  }
+  return { order, count: n };
+}
+
 export function groupLinesIntoScenes(args: {
   sections: ScriptSection[];
   lines: ScriptLine[];
@@ -87,9 +125,15 @@ export function groupLinesIntoScenes(args: {
   const groups: SceneGroup[] = [];
 
   const byOrder = [...sections].sort((a, b) => a.order - b.order);
+  const parts = partOrderMap(sections);
 
   for (const section of byOrder) {
-    const range = intervals[intervalGroupOf(section.kind)];
+    const range = tensionRange(
+      section,
+      intervals,
+      parts.order.get(section.id) ?? -1,
+      parts.count,
+    );
     const sectionLines = lines
       .filter((line) => line.sectionId === section.id)
       .sort((a, b) => a.index - b.index);
@@ -158,13 +202,21 @@ export function checkGroups(
   sections: ScriptSection[],
   intervals: Intervals,
 ): Array<{ index: number; message: string }> {
-  const kindById = new Map(sections.map((s) => [s.id, s.kind]));
+  const sectionById = new Map(sections.map((s) => [s.id, s]));
+  const parts = partOrderMap(sections);
   const problems: Array<{ index: number; message: string }> = [];
 
   groups.forEach((group, index) => {
-    const kind = kindById.get(group.sectionId);
-    if (!kind) return;
-    const range = intervals[intervalGroupOf(kind)];
+    const section = sectionById.get(group.sectionId);
+    if (!section) return;
+    // 묶을 때 쓴 것과 같은 기준으로 재야 한다. 원래 간격으로 재면 뒤 파트가
+    // 전부 '기준보다 짧다'로 잡힌다 — 일부러 빠르게 만든 건데.
+    const range = tensionRange(
+      section,
+      intervals,
+      parts.order.get(section.id) ?? -1,
+      parts.count,
+    );
     // 라인 하나가 통째로 긴 경우는 어쩔 수 없으니 넘어간다.
     if (group.durationSec > range.max && group.lineIds.length > 1) {
       problems.push({
