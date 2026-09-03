@@ -25,6 +25,12 @@ export interface Voice {
   detail: string;
 }
 
+export interface Model {
+  id: string;
+  name: string;
+  note: string;
+}
+
 export interface TtsProvider {
   id: TtsProviderId;
   label: string;
@@ -33,6 +39,14 @@ export interface TtsProvider {
   isConfigured(): boolean;
   /** 목소리 목록을 못 주는 서비스는 undefined */
   listVoices?: () => Promise<Voice[]>;
+  /**
+   * 이 서비스가 가진 세부 모델.
+   *
+   * 예전에는 모델을 글자로 받았다. 그래서 어느 서비스에 무슨 모델이 있는지 알려면
+   * 문서를 찾아야 했고, 오타를 내면 생성할 때가 되어서야 알았다. 목록이 고정된
+   * 서비스가 대부분이라 여기 적어둔다 — 호출로 받아오는 서비스는 함수로 만들면 된다.
+   */
+  models?: Model[];
   synthesize: (args: SynthesizeArgs) => Promise<SynthesisResult>;
 }
 

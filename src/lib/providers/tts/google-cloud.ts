@@ -30,6 +30,9 @@ export const googleCloud: TtsProvider = {
   id: "google-cloud",
   label: "Google Cloud TTS",
   envKeys: ["GOOGLE_CLOUD_TTS_API_KEY"],
+
+  // 모델을 따로 고르지 않는다. 목소리 이름(ko-KR-Neural2-C)에 세대가 들어 있다.
+  models: [],
   isConfigured: () => Boolean(process.env.GOOGLE_CLOUD_TTS_API_KEY),
 
   async listVoices() {

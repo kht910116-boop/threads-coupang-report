@@ -70,6 +70,11 @@ export const typecast: TtsProvider = {
   id: "typecast",
   label: "타입캐스트",
   envKeys: ["TYPECAST_API_KEY", "TYPECAST_API_BASE"],
+
+  models: [
+    { id: "ssfm-v21", name: "SSFM v21", note: "권장 — 감정 표현이 되는 최신 모델" },
+    { id: "ssfm-v20", name: "SSFM v20", note: "이전 세대. v21이 이상할 때 비교용" },
+  ],
   isConfigured: () => Boolean(process.env.TYPECAST_API_KEY),
 
   async synthesize({ text, voiceId, speed, language, model }) {

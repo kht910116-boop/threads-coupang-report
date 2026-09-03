@@ -67,6 +67,8 @@ function buildScript(plan: z.infer<typeof scriptPlanSchema>): ScriptResult {
         sectionId: section.id,
         index: lineIndex++,
         text: line.text.trim(),
+        // 발음 검수 전에는 비어 있다. 비면 text를 그대로 읽는다.
+        spokenText: "",
         audio: null,
       });
     }

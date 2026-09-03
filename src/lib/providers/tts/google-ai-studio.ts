@@ -37,6 +37,11 @@ export const googleAiStudio: TtsProvider = {
   id: "google-ai-studio",
   label: "Google AI Studio (Gemini TTS)",
   envKeys: ["GOOGLE_AI_STUDIO_API_KEY", "GEMINI_TTS_MODEL"],
+
+  models: [
+    { id: "gemini-2.5-flash-preview-tts", name: "2.5 Flash TTS", note: "권장 — 무료 한도가 여기 있습니다" },
+    { id: "gemini-2.5-pro-preview-tts", name: "2.5 Pro TTS", note: "품질이 높지만 무료 한도에서는 막힐 수 있습니다" },
+  ],
   isConfigured: () => Boolean(apiKey()),
 
   async synthesize({ text, voiceId, speed, model }) {

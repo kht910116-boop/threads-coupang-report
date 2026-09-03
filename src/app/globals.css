@@ -632,3 +632,70 @@ nav.rail .link.done { background: color-mix(in srgb, var(--ok) 45%, var(--border
   font-size: 13px;
   line-height: 1.6;
 }
+
+/* ── 발음 검수 ───────────────────────────────────────────── */
+
+.pron-list { margin-top: 12px; }
+
+/*
+  원문 → 읽는 글자. 위아래로 쌓아서 무엇이 무엇으로 바뀌는지 눈이 한 번에 따라간다.
+  좌우로 놓으면 긴 문장에서 두 칸이 서로 다른 높이가 되어 짝이 안 보인다.
+*/
+.pron {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.pron > div { flex: 1; min-width: 0; }
+.pron .num {
+  flex: none;
+  width: 34px;
+  padding-top: 3px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.pron .from {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.pron .to { display: flex; gap: 8px; align-items: center; }
+.pron .to input { flex: 1; min-width: 0; margin: 0; }
+.pron .badge { flex: none; }
+.pron .badge.on { color: var(--accent); border-color: var(--accent); }
+
+/* 읽는 글자가 따로 있는 줄. 자막 아래에 작게 붙여 두 벌을 같이 본다. */
+.spoken {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+/* 쭉 듣는 중에 지금 어느 줄인지. 소리만으로는 어디인지 알 수 없다. */
+.row.playing {
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+
+/* 눈에 덜 띄어야 하는 보조 동작. 지우거나 한꺼번에 덮는 것들. */
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+button.ghost:hover { border-color: var(--border); color: var(--text); }
+
+/* 검수 줄의 제안. 원문·편집칸 아래 셋째 층이라 더 작고 흐리다. */
+.pron .hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pron .hint code { flex: 1; min-width: 0; }

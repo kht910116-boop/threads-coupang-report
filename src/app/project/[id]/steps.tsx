@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, assetUrl } from "@/lib/api-client";
 import { makeLineDuration, measuredCharsPerSec } from "@/lib/pipeline/grouping";
 import {
@@ -10,6 +10,7 @@ import {
   SECTION_LABEL,
   type Project,
   type Scene,
+  type ScriptLine,
   type ScriptSection,
 } from "@/lib/types";
 
@@ -844,7 +845,38 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
  * 보통이다. 절대값으로 두면 어느 스타일에서도 '보통'에 걸리지 않아, 새 프로젝트가
  * 늘 '직접'으로 열린다. 실제로 그렇게 만들었다가 화면에서 확인하고 고쳤다.
  */
+/** 한 번에 그리는 자막 줄 수. 이보다 많으면 '더 보기'로 늘린다. */
+const LINES_PER_PAGE = 60;
+
 const PACE_FACTORS = { tight: 0.5, normal: 1, loose: 1.6 } as const;
+
+/**
+ * 말 빠르기와 높낮이.
+ *
+ * 예전에는 속도를 숫자 칸으로 받고 높낮이는 화면에 아예 없었다. 1.0이 보통인 건
+ * 알겠는데 1.15가 어느 정도인지는 만들어 봐야 안다. 이름을 붙이고 결과를 말로
+ * 적어두면 만들기 전에 고를 수 있다.
+ */
+const SPEED_FACTORS = { slow: 0.85, normal: 1, quick: 1.15, fast: 1.3 } as const;
+type Speed = keyof typeof SPEED_FACTORS | "custom";
+
+const SPEED_OPTIONS = [
+  { id: "slow", label: "느리게", hint: "차분한 해설·다큐. 또박또박 들립니다" },
+  { id: "normal", label: "보통", hint: "권장 — 서비스가 정한 기본 속도" },
+  { id: "quick", label: "조금 빠르게", hint: "정보량이 많은 대본에" },
+  { id: "fast", label: "빠르게", hint: "쇼츠. 늘어지지 않지만 뭉개질 수 있습니다" },
+  { id: "custom", label: "직접", hint: "배율을 직접 넣습니다" },
+] as const satisfies ReadonlyArray<{ id: Speed; label: string; hint: string }>;
+
+/** 반음 단위. 지원하지 않는 서비스는 이 값을 무시한다. */
+const PITCH_VALUES = { low: -2, normal: 0, high: 2 } as const;
+type Pitch = keyof typeof PITCH_VALUES;
+
+const PITCH_OPTIONS = [
+  { id: "low", label: "낮게", hint: "묵직하게. 두 반음 내립니다" },
+  { id: "normal", label: "보통", hint: "권장 — 목소리 원래 높이" },
+  { id: "high", label: "높게", hint: "밝게. 두 반음 올립니다" },
+] as const satisfies ReadonlyArray<{ id: Pitch; label: string; hint: string }>;
 
 type Pace = keyof typeof PACE_FACTORS | "custom";
 
@@ -874,10 +906,361 @@ function paceOf(tts: Project["tts"], base: Project["preset"]["tts"]): Pace {
   return match ?? "custom";
 }
 
+/**
+ * 한 줄 듣기.
+ *
+ * 예전에는 줄마다 `<audio controls>`를 깔았다. 455줄짜리 대본에서는 미디어 요소가
+ * 455개 생기고, 브라우저가 30초 넘게 멈췄다 — 화면이 아예 안 뜬다.
+ *
+ * 실제로 필요한 건 '이 줄 들어보기' 하나뿐이다. 누를 때 Audio를 만들고 끝나면
+ * 버린다. 화면에 있는 동안 아무것도 안 만든다.
+ */
+function PlayOne({ src }: { src: string }) {
+  const [on, setOn] = useState(false);
+  const audio = useRef<HTMLAudioElement | null>(null);
+
+  const stop = () => {
+    audio.current?.pause();
+    audio.current = null;
+    setOn(false);
+  };
+
+  // 목록을 벗어나면 소리가 남지 않아야 한다.
+  useEffect(() => stop, []);
+
+  return (
+    <button
+      className="sm"
+      style={{ width: 62 }}
+      onClick={() => {
+        if (on) {
+          stop();
+          return;
+        }
+        const el = new Audio(src);
+        audio.current = el;
+        el.onended = stop;
+        setOn(true);
+        void el.play();
+      }}
+    >
+      {on ? "정지" : "듣기"}
+    </button>
+  );
+}
+
+interface TtsCapability {
+  models: Array<{ id: string; name: string; note: string }>;
+  canListVoices: boolean;
+  voices: Array<{ id: string; name: string; detail: string }>;
+  voiceError: string | null;
+  configured: boolean;
+}
+
+/** 고른 서비스가 무엇을 가졌는지 물어본다. 서비스가 바뀌면 다시 묻는다. */
+function useTtsCapability(providerId: string) {
+  const [cap, setCap] = useState<TtsCapability | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setCap(null);
+    if (!providerId || providerId === "manual") return;
+    setLoading(true);
+    api<TtsCapability>(`/api/providers/tts/${encodeURIComponent(providerId)}`)
+      .then((data) => alive && setCap(data))
+      .catch(() => alive && setCap(null))
+      .finally(() => alive && setLoading(false));
+    // 서비스를 빠르게 바꾸면 늦게 온 응답이 새 것을 덮을 수 있다.
+    return () => {
+      alive = false;
+    };
+  }, [providerId]);
+
+  return { cap, loading };
+}
+
+/**
+ * 쭉 들어보기.
+ *
+ * 줄마다 재생 버튼이 있어도 455줄을 하나씩 눌러 들을 수는 없다. 이어서 틀어주고,
+ * 지금 어느 줄인지 보여주고, 이상한 데서 멈출 수 있어야 검수가 된다.
+ *
+ * 줄 사이 쉼도 실제 설정값만큼 넣는다. 안 그러면 완성본과 다른 속도로 들려서
+ * "빠른 것 같은데"가 설정 탓인지 음성 탓인지 알 수 없다.
+ */
+function PlayAll({
+  lines,
+  gapMs,
+  onCurrent,
+}: {
+  lines: ScriptLine[];
+  gapMs: number;
+  onCurrent: (lineId: string | null) => void;
+}) {
+  const [at, setAt] = useState<number | null>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const playable = lines.filter((l) => l.audio);
+
+  const stop = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    audio.current?.pause();
+    audio.current = null;
+    setAt(null);
+    onCurrent(null);
+  }, [onCurrent]);
+
+  // 단계를 벗어나거나 목록이 바뀌면 소리가 남지 않아야 한다.
+  useEffect(() => stop, [stop]);
+
+  const playFrom = (i: number) => {
+    if (i >= playable.length) {
+      stop();
+      return;
+    }
+    const line = playable[i];
+    setAt(i);
+    onCurrent(line.id);
+    const el = new Audio(assetUrl(line.audio!.path));
+    audio.current = el;
+    el.onended = () => {
+      timer.current = setTimeout(() => playFrom(i + 1), gapMs);
+    };
+    void el.play();
+  };
+
+  if (playable.length === 0) return null;
+
+  const total = playable.reduce((sum, l) => sum + (l.audio?.durationSec ?? 0), 0);
+
+  return (
+    <div className="row">
+      {at === null ? (
+        <button onClick={() => playFrom(0)}>
+          쭉 들어보기 ({playable.length}줄 · {fmt(total)})
+        </button>
+      ) : (
+        <>
+          <button className="primary" onClick={stop}>
+            멈추기
+          </button>
+          <span className="dim">
+            {at + 1} / {playable.length}번째 줄 재생 중
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface Suggestion {
+  lineId: string;
+  number: number;
+  text: string;
+  spoken: string;
+  suggested: string;
+  settled: boolean;
+}
+
+/**
+ * 발음 검수.
+ *
+ * TTS는 "1,030억 원"을 제멋대로 읽는다. 자막에 보이는 글자와 읽는 글자를 갈라야
+ * 하는데, 어느 줄이 문제인지 사람이 455줄을 다 훑어서 찾을 수는 없다.
+ *
+ * 그래서 **바뀐 줄만** 보여준다. 레퍼런스도 같은 방식이었다 — AI가 한 일을 사람이
+ * 훑는 게이트를 눈에 띄게 만들되, 강제하지는 않는다.
+ */
+function PronounceReview({
+  project,
+  setProject,
+  run,
+  busy,
+}: {
+  project: Project;
+  setProject: (p: Project) => void;
+  run: PanelProps["run"];
+  busy: PanelProps["busy"];
+}) {
+  const [data, setData] = useState<{ total: number; suggestions: Suggestion[] } | null>(null);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const PER_PAGE = 20;
+
+  const load = async () => {
+    setData(
+      await api<{ total: number; suggestions: Suggestion[] }>(
+        `/api/projects/${project.id}/pronounce`,
+      ),
+    );
+    setEdits({});
+  };
+
+  useEffect(() => {
+    void load().catch(() => setData(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, project.lines.length]);
+
+  if (!data || data.suggestions.length === 0) return null;
+
+  const items = data.suggestions;
+  const settled = items.filter((i) => i.settled).length;
+  const pages = Math.ceil(items.length / PER_PAGE);
+  const shown = items.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
+
+  const save = (spoken: Record<string, string>) =>
+    run("읽는 법을 저장하는 중…", async () => {
+      const result = await api<{ project: Project }>(
+        `/api/projects/${project.id}/pronounce`,
+        { method: "POST", json: { spoken } },
+      );
+      setProject(result.project);
+      await load();
+    });
+
+  const acceptAll = () =>
+    run("제안을 모두 받는 중…", async () => {
+      const result = await api<{ project: Project }>(
+        `/api/projects/${project.id}/pronounce`,
+        { method: "POST", json: { acceptAll: true } },
+      );
+      setProject(result.project);
+      await load();
+    });
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>
+          발음 검수{" "}
+          <span className="count">
+            {data.total}줄 중 {items.length}줄 · 확정 {settled}
+          </span>
+        </h3>
+        <button className="sm" onClick={() => setOpen((o) => !o)}>
+          {open ? "접기" : "펼쳐서 보기"}
+        </button>
+      </div>
+      <p className="note">
+        자막에 보이는 글자와 <strong>읽는 글자</strong>는 다릅니다. 자막은{" "}
+        <code>1,030억 원</code>이 맞고 음성은 <code>천삼십억 원</code>이 맞습니다.
+        숫자·기호·영문이 든 줄만 모았습니다.{" "}
+        <strong>아무것도 자동으로 바꾸지 않습니다</strong> — 고쳐서 저장한 줄만 그
+        글자로 읽고, 나머지는 원문 그대로 읽습니다.
+      </p>
+      <div className="row">
+        <button onClick={() => setOpen(true)} disabled={Boolean(busy) || open}>
+          {items.length}줄 검수하기
+        </button>
+        {/*
+          제안을 한꺼번에 받는 길도 남긴다. 106줄을 하나씩 눌러야만 한다면 아무도
+          끝까지 못 한다. 다만 눈에 덜 띄게 둔다 — 기본은 사람이 보는 것이다.
+        */}
+        <button className="ghost" onClick={() => void acceptAll()} disabled={Boolean(busy)}>
+          제안대로 일괄 적용
+        </button>
+        {settled > 0 && (
+          <button
+            className="ghost"
+            onClick={() =>
+              void save(Object.fromEntries(items.map((i) => [i.lineId, i.text])))
+            }
+            disabled={Boolean(busy)}
+          >
+            전부 원문으로 되돌리기
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <div className="pron-list">
+            {shown.map((item) => {
+              /*
+                확정한 줄은 그 글자에서, 아직 안 본 줄은 **원문**에서 시작한다.
+                제안을 칸에 미리 채워두면 사용자가 손대지 않은 것도 자기가 정한
+                것처럼 보인다. 제안은 옆에 두고 원할 때 넣게 한다.
+              */
+              const base = item.settled ? item.spoken : item.text;
+              const value = edits[item.lineId] ?? base;
+              const dirty = value.trim() !== base.trim();
+              const canSuggest = item.suggested.trim() !== value.trim();
+              return (
+                <div className="pron" key={item.lineId}>
+                  <span className="num">{item.number}</span>
+                  <div>
+                    <p className="from">{item.text}</p>
+                    <div className="to">
+                      <input
+                        value={value}
+                        onChange={(e) =>
+                          setEdits({ ...edits, [item.lineId]: e.target.value })
+                        }
+                      />
+                      {dirty ? (
+                        <button
+                          className="sm primary"
+                          onClick={() => void save({ [item.lineId]: value })}
+                        >
+                          저장
+                        </button>
+                      ) : (
+                        <span className={`badge${item.settled ? " on" : ""}`}>
+                          {item.settled ? "확정" : "원문 그대로"}
+                        </span>
+                      )}
+                    </div>
+                    {canSuggest && (
+                      <p className="hint">
+                        제안: <code>{item.suggested}</code>{" "}
+                        <button
+                          className="sm"
+                          onClick={() =>
+                            setEdits({ ...edits, [item.lineId]: item.suggested })
+                          }
+                        >
+                          넣기
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {pages > 1 && (
+            <div className="pager">
+              <button className="sm" disabled={page <= 0} onClick={() => setPage(page - 1)}>
+                ← 이전
+              </button>
+              <span className="at">
+                {page + 1} / {pages}
+              </span>
+              <button
+                className="sm"
+                disabled={page >= pages - 1}
+                onClick={() => setPage(page + 1)}
+              >
+                다음 →
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function StepTts({ project, setProject, run, busy }: PanelProps) {
   const [tts, setTts] = useState(project.tts);
   const [redoAsk, setRedoAsk] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [speedManual, setSpeedManual] = useState(false);
+  const [showCount, setShowCount] = useState(LINES_PER_PAGE);
   // 값만 보고 프리셋을 되짚으면 '직접'을 누른 순간이 표현되지 않는다 —
   // 값이 아직 프리셋과 같으니 계속 그 프리셋으로 읽혀서 숫자 칸이 안 열린다.
   // 그래서 '직접을 골랐다'는 사실만 따로 들고 있는다.
@@ -885,8 +1268,27 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
     () => paceOf(project.tts, project.preset.tts) === "custom",
   );
   const choices = useChoices();
+  const { cap, loading: capLoading } = useTtsCapability(tts.provider);
   const withAudio = project.lines.filter((l) => l.audio).length;
   const pace: Pace = manual ? "custom" : paceOf(tts, project.preset.tts);
+  const sortedLines = [...project.lines].sort((a, b) => a.index - b.index);
+  const shownLines = sortedLines.slice(0, showCount);
+
+  /** 지금 배율이 어느 이름에 걸리는지. 아무 데도 안 걸리면 '직접'이다. */
+  const speedOf = (value: number): Speed => {
+    if (speedManual) return "custom";
+    const hit = (Object.keys(SPEED_FACTORS) as Array<keyof typeof SPEED_FACTORS>).find(
+      (key) => Math.abs(SPEED_FACTORS[key] - value) < 0.001,
+    );
+    return hit ?? "custom";
+  };
+  /** 높낮이는 '직접'을 두지 않는다. 반음을 숫자로 고르는 사람은 없다. */
+  const pitchOf = (value: number): Pitch => {
+    const hit = (Object.keys(PITCH_VALUES) as Array<keyof typeof PITCH_VALUES>).find(
+      (key) => PITCH_VALUES[key] === value,
+    );
+    return hit ?? "normal";
+  };
 
   const saveSettings = () =>
     run("저장 중…", async () => {
@@ -942,24 +1344,95 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
           </div>
           <div className="field">
             <label>세부 모델</label>
-            <input
-              value={tts.model}
-              placeholder="비우면 기본값"
-              onChange={(e) => setTts({ ...tts, model: e.target.value })}
-            />
+            {cap && cap.models.length > 0 ? (
+              <select
+                value={tts.model}
+                onChange={(e) => setTts({ ...tts, model: e.target.value })}
+              >
+                <option value="">기본값</option>
+                {cap.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={tts.model}
+                placeholder={capLoading ? "불러오는 중…" : "비우면 기본값"}
+                onChange={(e) => setTts({ ...tts, model: e.target.value })}
+              />
+            )}
+            <small className="dim">
+              {cap?.models.find((m) => m.id === tts.model)?.note ??
+                (cap && cap.models.length === 0
+                  ? "이 서비스는 모델을 따로 고르지 않습니다."
+                  : "고르면 설명이 여기 나옵니다.")}
+            </small>
           </div>
           <div className="field">
-            <label>voice id</label>
-            <input value={tts.voiceId} onChange={(e) => setTts({ ...tts, voiceId: e.target.value })} />
+            <label>목소리</label>
+            {cap && cap.voices.length > 0 ? (
+              <select
+                value={tts.voiceId}
+                onChange={(e) => setTts({ ...tts, voiceId: e.target.value })}
+              >
+                <option value="">기본값</option>
+                {cap.voices.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                    {v.detail ? " · " + v.detail : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={tts.voiceId}
+                placeholder={capLoading ? "불러오는 중…" : "voice id"}
+                onChange={(e) => setTts({ ...tts, voiceId: e.target.value })}
+              />
+            )}
+            {/*
+              목록을 못 받아온 이유를 말해준다. 빈 칸만 두면 사용자는 이 서비스에
+              목소리가 없는 줄 안다 — 실제로는 키가 없거나 한도를 넘긴 것이다.
+            */}
+            {cap?.voiceError && <small className="warn">{cap.voiceError}</small>}
+            {cap && !cap.canListVoices && (
+              <small className="dim">
+                이 서비스는 목소리 목록을 주지 않습니다. 직접 넣으세요.
+              </small>
+            )}
           </div>
+        </div>
+
+        <Seg
+          label="말 빠르기"
+          value={speedOf(tts.speed)}
+          options={SPEED_OPTIONS}
+          onChange={(id) => {
+            if (id === "custom") setSpeedManual(true);
+            else {
+              setSpeedManual(false);
+              setTts({ ...tts, speed: SPEED_FACTORS[id] });
+            }
+          }}
+        />
+        {speedOf(tts.speed) === "custom" && (
           <div className="field">
-            <label>속도</label>
+            <label>속도 배율 (1.0 = 보통)</label>
             <input
-              type="number" step="0.01" value={tts.speed}
+              type="number" step="0.05" min="0.25" max="4"
+              value={tts.speed}
               onChange={(e) => setTts({ ...tts, speed: Number(e.target.value) })}
             />
           </div>
-        </div>
+        )}
+        <Seg
+          label="목소리 높낮이"
+          value={pitchOf(tts.pitch)}
+          options={PITCH_OPTIONS}
+          onChange={(id) => setTts({ ...tts, pitch: PITCH_VALUES[id] })}
+        />
 
         <Seg
           label="쉼"
@@ -996,6 +1469,21 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
         )}
 
         <div className="row">
+          <button onClick={saveSettings} disabled={Boolean(busy)}>설정만 저장</button>
+        </div>
+      </div>
+
+      <PronounceReview project={project} setProject={setProject} run={run} busy={busy} />
+
+      {/*
+        만들기를 검수 뒤에 둔다.
+
+        순서가 곧 안내다. 먼저 만들면 발음이 틀린 음성 455개를 얻고, 고친 뒤 다시
+        만들어야 한다 — 구독 사용량을 두 번 쓴다. 화면에서 위에 있는 것을 먼저
+        누르므로, 검수 카드를 지나야 만들기 버튼이 나오게 했다.
+      */}
+      <div className="card">
+        <div className="row">
           <button
             className="primary"
             onClick={() => void generate()}
@@ -1012,8 +1500,11 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
           <button onClick={() => setRedoAsk(true)} disabled={Boolean(busy) || withAudio === 0}>
             전부 다시
           </button>
-          <button onClick={saveSettings} disabled={Boolean(busy)}>설정만 저장</button>
         </div>
+        <p className="note">
+          위 검수를 끝낸 뒤에 만드세요. 먼저 만들면 발음이 틀린 음성을 얻고, 고친
+          뒤 다시 만들어야 합니다 — 사용량을 두 번 씁니다.
+        </p>
       </div>
 
       {redoAsk && (
@@ -1031,11 +1522,21 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
       )}
 
       <div className="card">
-        {[...project.lines]
-          .sort((a, b) => a.index - b.index)
-          .map((line) => (
+        <div className="card-head">
+          <h3>
+            자막 줄 <span className="count">음성 {withAudio}/{project.lines.length}</span>
+          </h3>
+          <PlayAll
+            lines={[...project.lines].sort((a, b) => a.index - b.index)}
+            gapMs={tts.gapMs}
+            onCurrent={setPlaying}
+          />
+        </div>
+        {shownLines.map((line) => (
             <div
-              className={`row ${picked.has(line.id) ? "picked" : ""}`}
+              className={`row ${picked.has(line.id) ? "picked" : ""}${
+                playing === line.id ? " playing" : ""
+              }`}
               key={line.id}
               style={{ flexWrap: "nowrap", marginBottom: 6 }}
             >
@@ -1049,18 +1550,20 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
               <span className="num dim" style={{ width: 30, textAlign: "right" }}>
                 {line.index + 1}
               </span>
-              <span style={{ flex: 1, minWidth: 0 }}>{line.text}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                {line.text}
+                {line.spokenText && (
+                  <small className="spoken" title="이 글자로 읽습니다">
+                    {line.spokenText}
+                  </small>
+                )}
+              </span>
               {line.audio ? (
                 <>
                   <small style={{ width: 48, textAlign: "right" }}>
                     {line.audio.durationSec.toFixed(1)}s
                   </small>
-                  <audio
-                    src={assetUrl(line.audio.path)}
-                    controls
-                    preload="none"
-                    style={{ width: 180, height: 28 }}
-                  />
+                  <PlayOne src={assetUrl(line.audio.path)} />
                 </>
               ) : (
                 <span className="pill off">없음</span>
@@ -1070,6 +1573,25 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
               />
             </div>
           ))}
+
+        {/*
+          한 번에 다 그리지 않는다. 455줄을 통째로 그리면 화면이 멈춘다.
+          쪽 번호 대신 '더 보기'인 이유는, 검수는 위에서 아래로 훑는 일이라
+          앞뒤로 뛰어다닐 일이 없기 때문이다.
+        */}
+        {shownLines.length < sortedLines.length && (
+          <div className="pager">
+            <button className="sm" onClick={() => setShowCount(showCount + LINES_PER_PAGE)}>
+              {sortedLines.length - shownLines.length}줄 더 보기
+            </button>
+            <span className="at">
+              {shownLines.length} / {sortedLines.length}
+            </span>
+            <button className="sm" onClick={() => setShowCount(sortedLines.length)}>
+              전부 보기
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

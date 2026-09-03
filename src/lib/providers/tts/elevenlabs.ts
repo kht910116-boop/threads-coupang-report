@@ -6,6 +6,12 @@ export const elevenlabs: TtsProvider = {
   id: "elevenlabs",
   label: "ElevenLabs",
   envKeys: ["ELEVENLABS_API_KEY"],
+
+  models: [
+    { id: "eleven_multilingual_v2", name: "Multilingual v2", note: "권장 — 한국어가 가장 안정적입니다" },
+    { id: "eleven_turbo_v2_5", name: "Turbo v2.5", note: "빠르고 쌉니다. 품질이 조금 내려갑니다" },
+    { id: "eleven_flash_v2_5", name: "Flash v2.5", note: "가장 빠릅니다. 긴 대본을 급히 뽑을 때" },
+  ],
   isConfigured: () => Boolean(process.env.ELEVENLABS_API_KEY),
 
   async listVoices() {

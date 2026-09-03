@@ -51,7 +51,8 @@ export async function POST(request: Request, { params }: Params) {
     for (const line of targets) {
       try {
         const result = await provider.synthesize({
-          text: line.text,
+          // 검수해서 고쳐둔 글자가 있으면 그걸 읽는다. 자막은 원문 그대로 나간다.
+          text: line.spokenText || line.text,
           voiceId: project.tts.voiceId,
           model: project.tts.model,
           speed: project.tts.speed,

@@ -282,6 +282,13 @@ export const scriptLineSchema = z.object({
   /** 전체 대본에서의 통짜 순번 — 자막 번호로 그대로 쓴다 */
   index: z.number().int(),
   text: z.string(),
+  /**
+   * TTS가 읽을 글자. 비어 있으면 text를 그대로 읽는다.
+   *
+   * 자막에 보이는 글자와 읽는 글자는 다르다. 자막은 "1,030억 원"이 맞고 음성은
+   * "천삼십억 원"이 맞다. 한 칸에 담으면 둘 중 하나는 반드시 틀린다.
+   */
+  spokenText: z.string().default(""),
   audio: z
     .object({
       path: z.string(),
