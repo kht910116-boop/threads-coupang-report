@@ -570,3 +570,65 @@ nav.rail .link.done { background: color-mix(in srgb, var(--ok) 45%, var(--border
 }
 .batch-result p { margin: 0; font-size: 12.5px; line-height: 1.7; }
 .batch-result p + p { margin-top: 6px; }
+
+/*
+  파일을 떨어뜨리는 자리.
+
+  탐색기에서 아흔 몇 개를 통째로 끌어다 놓는 게 본래 쓰임새다. 점선 테두리는
+  '여기에 놓을 수 있다'를 말로 설명하지 않고 보여주는 가장 짧은 방법이다.
+*/
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 96px;
+  padding: 18px;
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.12s, background 0.12s;
+}
+.dropzone:hover { border-color: var(--accent, #7c6cf5); }
+.dropzone.over {
+  border-color: var(--accent, #7c6cf5);
+  border-style: solid;
+  background: rgba(124, 108, 245, 0.08);
+}
+.dropzone.busy { cursor: default; opacity: 0.7; }
+.dropzone strong { font-size: 13px; }
+.dropzone span { font-size: 12px; color: var(--text-dim); }
+
+/* 어느 파일이 몇 번 장면에 붙었나. 길어지므로 스스로 스크롤한다. */
+.matched {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+.matched li {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.matched li:last-child { border-bottom: 0; }
+.matched .num {
+  flex: none;
+  width: 56px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 훑어보는 자리의 장면 설명. 입력칸이 아니라 글이다. */
+.scene-summary {
+  margin: 0 0 8px;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.6;
+}

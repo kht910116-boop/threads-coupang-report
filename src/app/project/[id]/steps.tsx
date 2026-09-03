@@ -194,6 +194,31 @@ function BatchUpload({
     unmatched: string[];
     stillEmpty: number[];
   } | null>(null);
+  const [over, setOver] = useState(false);
+  const [detail, setDetail] = useState(false);
+
+  const send = async (files: File[]) => {
+    if (files.length === 0 || busy) return;
+    const form = new FormData();
+    form.append("kind", kind);
+    form.append("match", match);
+    for (const file of files) form.append("files", file);
+    setBusy(true);
+    setResult(null);
+    setDetail(false);
+    try {
+      const data = await api<{
+        project: Project;
+        matched: Array<{ scene: number; file: string }>;
+        unmatched: string[];
+        stillEmpty: number[];
+      }>(`/api/projects/${projectId}/upload/batch`, { method: "POST", body: form });
+      onDone(data.project);
+      setResult(data);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="batch">
@@ -221,44 +246,74 @@ function BatchUpload({
         아래에 알려줍니다. 하나가 빠져도 나머지가 밀리지 않으니 번호 방식이 안전합니다.
         이미 파일이 있는 장면은 새 파일로 바뀝니다.
       </p>
-      <button className="primary" disabled={busy} onClick={() => input.current?.click()}>
-        {busy ? "올리는 중..." : `${kind === "image" ? "이미지" : "영상"} 여러 개 올리기`}
-      </button>
+      {/*
+        떨어뜨리는 자리.
+
+        플로우에서 받은 파일 아흔 몇 개를 탐색기에서 통째로 끌어다 놓는 게 이 기능의
+        본래 쓰임새다. 파일 선택 창을 거치게 하면 폴더를 다시 찾아 들어가야 한다.
+        누르면 선택 창도 열리므로 두 방법이 같은 자리에 있다.
+      */}
+      <div
+        className={`dropzone${over ? " over" : ""}${busy ? " busy" : ""}`}
+        onClick={() => !busy && input.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          void send([...e.dataTransfer.files]);
+        }}
+      >
+        {busy ? (
+          <strong>올리는 중…</strong>
+        ) : (
+          <>
+            <strong>
+              {kind === "image" ? "이미지" : "영상"} 파일을 여기에 끌어다 놓으세요
+            </strong>
+            <span>몇 개든 한꺼번에 됩니다. 눌러서 골라도 됩니다.</span>
+          </>
+        )}
+      </div>
       <input
         ref={input}
         type="file"
         hidden
         multiple
         accept={kind === "image" ? "image/*" : "video/*"}
-        onChange={async (e) => {
+        onChange={(e) => {
           const files = [...(e.target.files ?? [])];
           e.target.value = "";
-          if (files.length === 0) return;
-          const form = new FormData();
-          form.append("kind", kind);
-          form.append("match", match);
-          for (const file of files) form.append("files", file);
-          setBusy(true);
-          setResult(null);
-          try {
-            const data = await api<{
-              project: Project;
-              matched: Array<{ scene: number; file: string }>;
-              unmatched: string[];
-              stillEmpty: number[];
-            }>(`/api/projects/${projectId}/upload/batch`, { method: "POST", body: form });
-            onDone(data.project);
-            setResult(data);
-          } finally {
-            setBusy(false);
-          }
+          void send(files);
         }}
       />
       {result && (
         <div className="batch-result">
           <p>
-            <strong>{result.matched.length}개</strong>를 장면에 붙였습니다.
+            <strong>{result.matched.length}개</strong>를 장면에 붙였습니다.{" "}
+            {result.matched.length > 0 && (
+              // 아흔 개를 다 펼치면 결과 요약이 안 읽힌다. 접어두되 확인은 되게 한다.
+              <button className="sm" onClick={() => setDetail((d) => !d)}>
+                {detail ? "목록 접기" : "어디에 붙었는지 보기"}
+              </button>
+            )}
           </p>
+          {detail && (
+            <ul className="matched">
+              {result.matched
+                .slice()
+                .sort((a, b) => a.scene - b.scene)
+                .map((m) => (
+                  <li key={m.scene}>
+                    <span className="num">씬 {m.scene}</span>
+                    {m.file}
+                  </li>
+                ))}
+            </ul>
+          )}
           {result.unmatched.length > 0 && (
             <p className="warn">
               맞는 장면을 못 찾은 파일 {result.unmatched.length}개:{" "}
@@ -1235,6 +1290,7 @@ function SceneCard({
   compact = false,
   showImage = false,
   uploadKind = "image",
+  brief = false,
 }: {
   scene: Scene;
   project: Project;
@@ -1248,9 +1304,18 @@ function SceneCard({
    * 영상 장면도 이미지(컷)를 갖는다 — 그게 영상의 재료다.
    */
   uploadKind?: "image" | "video";
+  /**
+   * 글은 읽기만 하고 편집기는 누를 때 편다.
+   *
+   * 5·6단계는 프롬프트를 고치는 자리가 아니라 **그림이 다 찼는지 훑는 자리**다.
+   * 그런데 장면 95개에 입력칸을 세 개씩 깔았더니 단계를 넘어갈 때 화면이 30초 넘게
+   * 멈췄다. 여기서 글을 고칠 일은 드무니 필요할 때만 편집기를 만든다.
+   */
+  brief?: boolean;
 }) {
   const [summary, setSummary] = useState(scene.summaryKo);
   const [prompt, setPrompt] = useState(scene.prompt);
+  const [editing, setEditing] = useState(false);
   const dirty = summary !== scene.summaryKo || prompt !== scene.prompt;
 
   useEffect(() => {
@@ -1330,19 +1395,30 @@ function SceneCard({
         )}
 
         <div>
-          <input
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            style={{ fontWeight: 600, marginBottom: 6 }}
-          />
-          <textarea
-            className="mono dim"
-            rows={compact ? 2 : 3}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-          />
-          {scene.mode === "video" && (
-            <small className="mono dim">모션: {scene.motionPrompt}</small>
+          {brief && !editing ? (
+            <>
+              <p className="scene-summary">{scene.summaryKo}</p>
+              <button className="sm" onClick={() => setEditing(true)}>
+                설명·프롬프트 고치기
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                style={{ fontWeight: 600, marginBottom: 6 }}
+              />
+              <textarea
+                className="mono dim"
+                rows={compact ? 2 : 3}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+              {scene.mode === "video" && (
+                <small className="mono dim">모션: {scene.motionPrompt}</small>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1654,6 +1730,7 @@ export function StepVisuals({
                 setProject={setProject}
                 showImage
                 uploadKind={kind}
+                brief
               />
             </div>
           ))}
