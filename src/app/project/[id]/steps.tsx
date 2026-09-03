@@ -355,34 +355,62 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
         )}
       </div>
 
+      {project.lines.length === 0 && (
+        <Empty
+          title="아직 대본이 없습니다."
+          desc="1단계에서 대본을 쓰면 훅·인트로부터 클로징까지 구간이 나뉘어 여기 나타납니다."
+        />
+      )}
+
+      {/*
+        구간 설명을 본문 옆 거터에 붙인다. 구간 목록을 위에 따로 두면 어느 줄이
+        어느 구간인지 보려고 눈이 위아래로 왔다 갔다 해야 한다.
+      */}
       {[...project.sections]
         .sort((a, b) => a.order - b.order)
         .map((section) => {
           const lines = project.lines
             .filter((l) => l.sectionId === section.id)
             .sort((a, b) => a.index - b.index);
+          const chars = lines.reduce((sum, l) => sum + [...(edits[l.id] ?? l.text)].length, 0);
+          const withAudio = lines.filter((l) => l.audio).length;
           return (
             <div className="card" key={section.id}>
-              <h3>
-                <span className="pill">{sectionName(section)}</span>{" "}
-                {section.title}{" "}
-                <small>{lines.length}줄</small>
-              </h3>
-              {lines.map((line) => (
-                <div className="row" key={line.id} style={{ flexWrap: "nowrap", marginBottom: 6 }}>
-                  <span className="num dim" style={{ width: 34, textAlign: "right" }}>
-                    {line.index + 1}
-                  </span>
-                  <input
-                    value={edits[line.id] ?? line.text}
-                    onChange={(e) => setEdits({ ...edits, [line.id]: e.target.value })}
-                  />
-                  <small style={{ width: 60, textAlign: "right" }}>
-                    {[...(edits[line.id] ?? line.text)].length}자
-                  </small>
-                  {line.audio && <span className="pill ok">음성</span>}
+              <div className="gutter">
+                <div className="body" style={{ whiteSpace: "normal" }}>
+                  {lines.map((line) => (
+                    <div
+                      className="row"
+                      key={line.id}
+                      style={{ flexWrap: "nowrap", marginBottom: 6 }}
+                    >
+                      <span className="num dim" style={{ width: 34, textAlign: "right" }}>
+                        {line.index + 1}
+                      </span>
+                      <input
+                        value={edits[line.id] ?? line.text}
+                        onChange={(e) => setEdits({ ...edits, [line.id]: e.target.value })}
+                      />
+                      <small style={{ width: 52, textAlign: "right" }}>
+                        {[...(edits[line.id] ?? line.text)].length}자
+                      </small>
+                      {line.audio && <span className="pill ok">음성</span>}
+                    </div>
+                  ))}
                 </div>
-              ))}
+                <div className="note">
+                  <strong>
+                    <span className={`badge ${section.kind === "hook" ? "hook" : "accent"}`}>
+                      {sectionName(section)}
+                    </span>
+                  </strong>
+                  <span>{section.title}</span>
+                  <span className="len">
+                    {lines.length}줄 · {chars}자
+                    {withAudio > 0 && ` · 음성 ${withAudio}/${lines.length}`}
+                  </span>
+                </div>
+              </div>
             </div>
           );
         })}
@@ -602,6 +630,7 @@ export function StepStoryboard({ project, setProject, run, busy }: PanelProps) {
   const [intervals, setIntervals] = useState(project.intervals);
   const [preview, setPreview] = useState<GroupPreview | null>(null);
   const [tab, setTab] = useState<string>("");
+  const [redoAsk, setRedoAsk] = useState(false);
 
   const loadPreview = async () =>
     setPreview(await api<GroupPreview>(`/api/projects/${project.id}/storyboard`));
@@ -632,9 +661,14 @@ export function StepStoryboard({ project, setProject, run, busy }: PanelProps) {
 
   const sections = [...project.sections].sort((a, b) => a.order - b.order);
   const activeTab = tab || sections[0]?.id || "";
-  const shown = project.scenes
-    .filter((s) => !activeTab || s.sectionId === activeTab)
-    .sort((a, b) => a.index - b.index);
+  const tabAt = sections.findIndex((s) => s.id === activeTab);
+  const ordered = [...project.scenes].sort((a, b) => a.index - b.index);
+  const shown = ordered.filter((s) => !activeTab || s.sectionId === activeTab);
+  // 이 구간이 영상 전체의 어디쯤인지. 앞 장면들의 길이를 더해 시작 시각을 낸다.
+  const spanStart = ordered
+    .slice(0, shown.length > 0 ? ordered.indexOf(shown[0]) : 0)
+    .reduce((sum, s) => sum + s.durationSec, 0);
+  const spanLength = shown.reduce((sum, s) => sum + s.durationSec, 0);
 
   return (
     <>
@@ -686,7 +720,11 @@ export function StepStoryboard({ project, setProject, run, busy }: PanelProps) {
 
         <div className="row" style={{ marginTop: 12 }}>
           <button onClick={applyIntervals} disabled={Boolean(busy)}>미리보기 갱신</button>
-          <button className="primary" onClick={generate} disabled={Boolean(busy)}>
+          <button
+            className="primary"
+            onClick={() => (project.scenes.length > 0 ? setRedoAsk(true) : void generate())}
+            disabled={Boolean(busy)}
+          >
             {project.scenes.length > 0 ? "장면 다시 만들기" : "장면 만들기"}
           </button>
           {preview && (
@@ -698,21 +736,46 @@ export function StepStoryboard({ project, setProject, run, busy }: PanelProps) {
         </div>
       </div>
 
-      {project.scenes.length > 0 && (
+      {redoAsk && (
+        <Confirm
+          title="장면을 다시 만들까요?"
+          warn={`장면 ${project.scenes.length}개가 새로 묶이고 그림 설명도 다시 씁니다. 붙여둔 이미지와 영상은 장면이 바뀌면 떨어져 나갑니다.`}
+          basis={`자막 ${project.lines.length}줄 · 구독 사용량을 씁니다`}
+          confirmLabel="다시 만들기"
+          onCancel={() => setRedoAsk(false)}
+          onConfirm={() => {
+            setRedoAsk(false);
+            void generate();
+          }}
+        />
+      )}
+
+      {project.scenes.length === 0 ? (
+        <Empty
+          title="아직 장면이 없습니다."
+          desc="위에서 간격을 정하고 만들면, 음성 길이 합이 그 범위에 들어오도록 자막 줄이 묶여 여기 나타납니다."
+        />
+      ) : (
         <div className="card">
-          <div className="spread" style={{ marginBottom: 12 }}>
-            <h3 style={{ margin: 0 }}>장면 ({project.scenes.length}개)</h3>
+          <div className="card-head">
+            <h3>
+              장면 <span className="count">{project.scenes.length}개</span>
+            </h3>
+            <small>{fmt(spanStart)}~{fmt(spanStart + spanLength)}</small>
           </div>
-          <div className="row" style={{ marginBottom: 12 }}>
+
+          {/* 파트별로 걸러 본다. 장면이 수십 개가 되면 한 번에 다 보는 게 오히려 안 읽힌다. */}
+          <div className="chips">
             {sections.map((section) => {
               const count = project.scenes.filter((s) => s.sectionId === section.id).length;
               return (
                 <button
                   key={section.id}
-                  className={`sm ${activeTab === section.id ? "primary" : ""}`}
+                  className={activeTab === section.id ? "on" : ""}
                   onClick={() => setTab(section.id)}
                 >
-                  {sectionName(section)} {count}
+                  {sectionName(section)}
+                  <span className="count">{count}</span>
                 </button>
               );
             })}
@@ -727,6 +790,27 @@ export function StepStoryboard({ project, setProject, run, busy }: PanelProps) {
               compact
             />
           ))}
+
+          {/* 알약을 일일이 겨누지 않고 순서대로 넘길 수 있게 한다. */}
+          <div className="pager">
+            <button
+              className="sm"
+              disabled={tabAt <= 0}
+              onClick={() => setTab(sections[tabAt - 1].id)}
+            >
+              ← 이전 구간
+            </button>
+            <span className="at">
+              {tabAt + 1} / {sections.length} 구간
+            </span>
+            <button
+              className="sm"
+              disabled={tabAt >= sections.length - 1}
+              onClick={() => setTab(sections[tabAt + 1].id)}
+            >
+              다음 구간 →
+            </button>
+          </div>
         </div>
       )}
     </>
@@ -855,11 +939,17 @@ export function StepVisuals({
   kind,
 }: PanelProps & { kind: "image" | "video" }) {
   const [image, setImage] = useState(project.image);
+  const [tab, setTab] = useState<string>("");
+  const [redoAsk, setRedoAsk] = useState(false);
   const choices = useChoices();
 
   const scenes = [...project.scenes].sort((a, b) => a.index - b.index);
   const targets = kind === "image" ? scenes : scenes.filter((s) => s.mode === "video");
   const done = targets.filter((s) => (kind === "image" ? s.image : s.video)).length;
+  const sections = [...project.sections].sort((a, b) => a.order - b.order);
+  // 여기는 스토리보드와 달리 '전체'가 기본이다. 그림이 다 찼는지 훑어보는 자리라서다.
+  const activeTab = tab;
+  const shown = activeTab ? targets.filter((s) => s.sectionId === activeTab) : targets;
 
   const generate = (redo: boolean) =>
     run(kind === "image" ? "이미지 만드는 중…" : "영상 만드는 중… (오래 걸립니다)", async () => {
@@ -925,25 +1015,72 @@ export function StepVisuals({
           <button className="primary" onClick={() => generate(false)} disabled={Boolean(busy)}>
             {kind === "image" ? "이미지" : "영상"} 만들기 ({done}/{targets.length})
           </button>
-          <button onClick={() => generate(true)} disabled={Boolean(busy)}>전부 다시</button>
+          <button onClick={() => setRedoAsk(true)} disabled={Boolean(busy) || done === 0}>
+            전부 다시
+          </button>
         </div>
       </div>
 
-      <div className="card">
-        {targets.length === 0 ? (
-          <p className="dim">
-            {kind === "video"
-              ? "영상으로 만들 장면이 없습니다. 장면 카드에서 'AI 영상'으로 바꿔주세요."
-              : "장면이 없습니다."}
-          </p>
-        ) : (
-          targets.map((scene) => (
+      {redoAsk && (
+        <Confirm
+          title={`${kind === "image" ? "이미지" : "영상"}를 전부 다시 만들까요?`}
+          warn={`이미 만들어 둔 ${done}개가 지워지고 처음부터 다시 만듭니다. 잠근 장면도 함께 지워집니다.`}
+          basis={`장면 ${targets.length}개 · 구독 사용량을 씁니다`}
+          confirmLabel="전부 다시"
+          onCancel={() => setRedoAsk(false)}
+          onConfirm={() => {
+            setRedoAsk(false);
+            void generate(true);
+          }}
+        />
+      )}
+
+      {targets.length === 0 ? (
+        <Empty
+          title={kind === "video" ? "영상으로 만들 장면이 없습니다." : "아직 장면이 없습니다."}
+          desc={
+            kind === "video"
+              ? "장면 카드에서 모드를 'AI 영상'으로 바꾸면 그 장면만 여기 모입니다."
+              : "4단계 스토리보드에서 장면을 만들면 여기에 한 장씩 채워집니다."
+          }
+        />
+      ) : (
+        <div className="card">
+          <div className="card-head">
+            <h3>
+              장면 <span className="count">{done}/{targets.length} 완료</span>
+            </h3>
+          </div>
+
+          {/* 장면이 수십 개라 파트로 걸러 본다. 스토리보드 단계와 같은 조작이다. */}
+          <div className="chips">
+            <button className={activeTab === "" ? "on" : ""} onClick={() => setTab("")}>
+              전체
+              <span className="count">{targets.length}</span>
+            </button>
+            {sections.map((section) => {
+              const count = targets.filter((s) => s.sectionId === section.id).length;
+              if (count === 0) return null;
+              return (
+                <button
+                  key={section.id}
+                  className={activeTab === section.id ? "on" : ""}
+                  onClick={() => setTab(section.id)}
+                >
+                  {sectionName(section)}
+                  <span className="count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {shown.map((scene) => (
             <SceneCard
               key={scene.id} scene={scene} project={project} setProject={setProject} showImage
             />
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }
