@@ -1,6 +1,33 @@
+import os from "node:os";
 import { upperUuid } from "@/lib/id";
 import { buildTimeline, type Timeline } from "@/lib/pipeline/timeline";
 import { ASPECT_RESOLUTION, type Project, type SceneEffect } from "@/lib/types";
+
+/**
+ * 드래프트가 자기를 어느 캡컷이 만들었다고 밝히는 값.
+ *
+ * 이 값들은 이 PC의 캡컷이 실제로 만든 draft_content.json에서 가져왔다.
+ * 예전에는 new_version "110.0.0" / app_version "5.9.0" / os "mac"으로 박혀 있었는데,
+ * 짐작으로 넣은 값이었고 실제 캡컷은 183.0.0 / 9.3.0 / windows였다. 특히 윈도우
+ * 사용자의 드래프트가 자기를 맥에서 만들었다고 말하고 있었다.
+ *
+ * **캡컷 버전이 다르면 여기를 고쳐야 한다.** 드래프트가 안 열릴 때 제일 먼저
+ * 의심할 자리다. 자기 캡컷이 만든 프로젝트의 draft_content.json을 열어
+ * new_version과 platform을 그대로 옮기면 된다.
+ */
+const DRAFT_VERSION = "183.0.0";
+
+/** os와 os_version은 실행 중인 PC에서 읽는다. 박아두면 또 거짓말을 하게 된다. */
+const PLATFORM = {
+  app_id: 359289,
+  app_source: "cc",
+  app_version: "9.3.0",
+  device_id: "",
+  hard_disk_id: "",
+  mac_address: "",
+  os: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "mac" : "linux",
+  os_version: os.release(),
+};
 
 /**
  * 캡컷 드래프트 생성기.
@@ -474,7 +501,9 @@ export function buildCapCutDraft(
   });
 
   const content = {
-    canvas_config: { width, height, ratio: "original" },
+    // background 필드가 실제 드래프트에는 있다. 없다고 안 열리는지는 모르지만,
+    // 확인할 수 있는 차이는 없애 두는 편이 낫다.
+    canvas_config: { width, height, ratio: "original", background: null },
     color_space: 0,
     config: {
       adjust_max_index: 1, attachment_info: [], combination_max_index: 1,
@@ -509,15 +538,51 @@ export function buildCapCutDraft(
       tail_leaders: [], text_templates: [], texts, time_marks: [], transitions: [],
       video_effects: [], video_trackings: [], videos, vocal_beautifys: [],
       vocal_separations: vocalSeparations,
+      // 실제 드래프트에는 있는데 우리에게 없던 것들. 전부 빈 목록이면 되는 자리다.
+      ai_text_effects: [], audio_pannings: [], audio_pitch_shifts: [],
+      common_mask: [], digital_human_model_dressing: [], handwrites: [],
+      hsl_curves: [], manual_beautys: [], placeholder_infos: [],
+      video_radius: [], video_shadows: [], video_strokes: [],
     },
     mutable_config: null,
     name: "",
-    new_version: "110.0.0",
-    platform: {
-      app_id: 3704, app_source: "cc", app_version: "5.9.0",
-      device_id: "", hard_disk_id: "", mac_address: "", os: "mac", os_version: "",
-    },
+    new_version: DRAFT_VERSION,
+    platform: PLATFORM,
+    last_modified_platform: PLATFORM,
     relationships: [],
+    // 아래 여덟은 실제 드래프트에 있는데 우리가 안 내던 것들이다.
+    draft_type: "video",
+    path: "",
+    is_drop_frame_timecode: false,
+    mixed_track_mode_on: false,
+    lyrics_effects: [],
+    time_marks: null,
+    smart_ads_info: { page_from: "", routine: "", draft_url: "" },
+    uneven_animation_template_info: {
+      composition: "", content: "", order: "", sub_template_info_list: [],
+    },
+    function_assistant_info: {
+      smart_rec_applied: false, fixed_rec_applied: false,
+      auto_adjust: false, auto_adjust_segid_list: [],
+      color_correction: false, color_correction_segid_list: [],
+      enhance_quality: false, smooth_slow_motion: false,
+      deflicker_segid_list: [], video_noise_segid_list: [],
+      enhance_quality_segid_list: [], smart_segid_list: [],
+      retouch: false, retouch_segid_list: [],
+      enhande_voice: false, enhance_voice_segid_list: [],
+      audio_noise_segid_list: [],
+      auto_caption: false, auto_caption_segid_list: [], auto_caption_template_id: "",
+      caption_opt: false, caption_opt_segid_list: [],
+      eye_correction: false, eye_correction_segid_list: [],
+      normalize_loudness: false, normalize_loudness_segid_list: [],
+      normalize_loudness_audio_denoise_segid_list: [],
+      auto_adjust_fixed: false, auto_adjust_fixed_value: 50.0,
+      color_correction_fixed: false, color_correction_fixed_value: 50.0,
+      normalize_loudness_fixed: false, enhande_voice_fixed: false,
+      retouch_fixed: false, enhance_quality_fixed: false,
+      smooth_slow_motion_fixed: false,
+      fps: { num: 0, den: 1 },
+    },
     render_index_track_mode_on: true,
     retouch_cover: null,
     source: "default",
