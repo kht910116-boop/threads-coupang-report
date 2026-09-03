@@ -135,19 +135,51 @@ function Seg<T extends string>({
   value,
   options,
   onChange,
+  help,
 }: {
   label: string;
   value: T;
   options: ReadonlyArray<{ id: T; label: string; hint: string }>;
   onChange: (id: T) => void;
+  /**
+   * 힌트 한 줄로 부족할 때 여는 도움말.
+   *
+   * 설명만 쓰지 말고 **결과를 보여주는 편**이 낫다. 레퍼런스는 자막 길이 설정에서
+   * 같은 문장이 설정별로 어떻게 갈리는지를 직접 그려준다 — 글로 백 줄 쓰는 것보다
+   * 그게 빠르다.
+   */
+  help?: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   const hint = options.find((o) => o.id === value)?.hint ?? "";
   return (
     <div className="seg-field">
       <div className="seg-label">
-        <span>{label}</span>
+        <span>
+          {label}
+          {help && (
+            <button className="help" onClick={() => setOpen(true)} aria-label={`${label} 설명 보기`}>
+              ?
+            </button>
+          )}
+        </span>
         <span className="seg-hint">{hint}</span>
       </div>
+      {open && (
+        <div className="modal-back" onClick={() => setOpen(false)}>
+          <div
+            className="modal"
+            style={{ textAlign: "left", width: "min(560px, 100%)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>{label}</h3>
+            {help}
+            <div className="acts" style={{ marginTop: 18 }}>
+              <button onClick={() => setOpen(false)}>닫기</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="seg">
         {options.map((o) => (
           <button key={o.id} className={o.id === value ? "on" : ""} onClick={() => onChange(o.id)}>
@@ -626,6 +658,7 @@ function paceOf(tts: Project["tts"], base: Project["preset"]["tts"]): Pace {
 export function StepTts({ project, setProject, run, busy }: PanelProps) {
   const [tts, setTts] = useState(project.tts);
   const [redoAsk, setRedoAsk] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   // 값만 보고 프리셋을 되짚으면 '직접'을 누른 순간이 표현되지 않는다 —
   // 값이 아직 프리셋과 같으니 계속 그 프리셋으로 읽혀서 숫자 칸이 안 열린다.
   // 그래서 '직접을 골랐다'는 사실만 따로 들고 있는다.
@@ -643,17 +676,37 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
       );
     });
 
-  const generate = (redo: boolean) =>
-    run(redo ? "음성 전부 다시 만드는 중…" : "음성 만드는 중…", async () => {
+  /**
+   * 음성 만들기.
+   *
+   * lineIds를 주면 그 줄만 만든다. 라우트는 처음부터 받고 있었는데 화면에서 쓰지
+   * 않아서, 한 줄 발음이 이상해도 455줄을 통째로 다시 만드는 수밖에 없었다.
+   */
+  const generate = (opts: { redo?: boolean; lineIds?: string[] } = {}) => {
+    const n = opts.lineIds?.length ?? 0;
+    const label = n > 0
+      ? `고른 ${n}줄 다시 만드는 중…`
+      : opts.redo ? "음성 전부 다시 만드는 중…" : "음성 만드는 중…";
+    return run(label, async () => {
       await api(`/api/projects/${project.id}`, { method: "PATCH", json: { tts } });
       const result = await api<{ project: Project; failed: Array<{ line: number; error: string }> }>(
         `/api/projects/${project.id}/tts`,
-        { json: { redo } },
+        { json: { redo: opts.redo ?? false, lineIds: opts.lineIds } },
       );
       setProject(result.project);
+      setPicked(new Set());
       if (result.failed.length > 0) {
         throw new Error(result.failed.map((f) => `${f.line}번 줄: ${f.error}`).join("\n"));
       }
+    });
+  };
+
+  const toggle = (id: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
 
   return (
@@ -724,10 +777,22 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
         )}
 
         <div className="row">
-          <button className="primary" onClick={() => generate(false)} disabled={Boolean(busy)}>
-            음성 만들기 ({withAudio}/{project.lines.length})
+          <button
+            className="primary"
+            onClick={() => void generate()}
+            disabled={Boolean(busy) || withAudio === project.lines.length}
+          >
+            아직 없는 음성 만들기 ({project.lines.length - withAudio}줄)
           </button>
-          <button onClick={() => setRedoAsk(true)} disabled={Boolean(busy)}>전부 다시</button>
+          <button
+            onClick={() => void generate({ redo: true, lineIds: [...picked] })}
+            disabled={Boolean(busy) || picked.size === 0}
+          >
+            고른 {picked.size}줄 다시 만들기
+          </button>
+          <button onClick={() => setRedoAsk(true)} disabled={Boolean(busy) || withAudio === 0}>
+            전부 다시
+          </button>
           <button onClick={saveSettings} disabled={Boolean(busy)}>설정만 저장</button>
         </div>
       </div>
@@ -741,7 +806,7 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
           onCancel={() => setRedoAsk(false)}
           onConfirm={() => {
             setRedoAsk(false);
-            void generate(true);
+            void generate({ redo: true });
           }}
         />
       )}
@@ -750,8 +815,19 @@ export function StepTts({ project, setProject, run, busy }: PanelProps) {
         {[...project.lines]
           .sort((a, b) => a.index - b.index)
           .map((line) => (
-            <div className="row" key={line.id} style={{ flexWrap: "nowrap", marginBottom: 6 }}>
-              <span className="num dim" style={{ width: 34, textAlign: "right" }}>
+            <div
+              className={`row ${picked.has(line.id) ? "picked" : ""}`}
+              key={line.id}
+              style={{ flexWrap: "nowrap", marginBottom: 6 }}
+            >
+              {/* 한 줄만 어긋났을 때 455줄을 다 버리지 않도록 골라서 다시 만든다. */}
+              <input
+                type="checkbox"
+                style={{ width: "auto", margin: 0 }}
+                checked={picked.has(line.id)}
+                onChange={() => toggle(line.id)}
+              />
+              <span className="num dim" style={{ width: 30, textAlign: "right" }}>
                 {line.index + 1}
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>{line.text}</span>
@@ -1441,6 +1517,71 @@ function CaptionPreview({ project, caption }: { project: Project; caption: Proje
   );
 }
 
+/** 글자수 기준대로 한 줄을 접는다. 단어 중간에서 자르지 않는다. */
+function wrapKo(text: string, max: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word;
+    if ([...next].length > max && line) {
+      out.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/**
+ * 한 줄 길이 도움말.
+ *
+ * 설명 대신 **결과를 보여준다.** 이 프로젝트의 실제 대본 문장 하나를 골라 세 설정으로
+ * 각각 접어 보여주니, 20자와 30자가 무엇을 바꾸는지 읽지 않아도 보인다.
+ */
+function LineWidthHelp({ project }: { project: Project }) {
+  // 짧은 문장은 어느 설정에서도 한 줄이라 차이가 안 보인다. 충분히 긴 줄을 고른다.
+  const sample =
+    [...project.lines].sort((a, b) => [...b.text].length - [...a.text].length)[0]?.text ??
+    "그날 새벽 조용하던 마을에 낯선 손님이 찾아오면서 모든 이야기가 시작되었습니다";
+
+  return (
+    <>
+      <p style={{ margin: "0 0 6px", fontSize: 13, lineHeight: 1.7 }}>
+        자막 한 줄에 최대 몇 글자까지 넣을지 정합니다. 이 길이를 넘는 문장은 단어를
+        쪼개지 않는 선에서 여러 줄로 나뉘어 순서대로 화면에 뜹니다.
+      </p>
+      <p className="dim" style={{ margin: "0 0 14px", fontSize: 12.5 }}>
+        같은 문장이 설정에 따라 이렇게 갈립니다.
+      </p>
+
+      {LINE_WIDTH_OPTIONS.map((o) => {
+        const max = LINE_WIDTHS[o.id];
+        const rows = wrapKo(sample, max);
+        return (
+          <div key={o.id} style={{ marginBottom: 12 }}>
+            <div className="seg-hint" style={{ textAlign: "left", marginBottom: 4 }}>
+              {o.label} · {max}자 — {rows.length}줄
+            </div>
+            {rows.map((row, i) => (
+              <div className="row" key={i} style={{ flexWrap: "nowrap", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>{row}</span>
+                <small style={{ width: 34, textAlign: "right" }}>{[...row].length}자</small>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
+      <p className="dim" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.7 }}>
+        짧게 고를수록 읽기 편하지만 자막이 자주 바뀌고, 길게 고를수록 줄바꿈이 줄어
+        흐름이 안 끊기는 대신 작은 화면에서 한 줄이 길어 보입니다.
+      </p>
+    </>
+  );
+}
+
 export function StepStyling({ project, setProject, run, busy }: PanelProps) {
   const [caption, setCaption] = useState(project.caption);
   const [effects, setEffects] = useState(project.effects);
@@ -1534,6 +1675,7 @@ export function StepStyling({ project, setProject, run, busy }: PanelProps) {
           value={lineWidthOf(caption.maxCharsPerLine)}
           options={LINE_WIDTH_OPTIONS}
           onChange={(id) => setCaption({ ...caption, maxCharsPerLine: LINE_WIDTHS[id] })}
+          help={<LineWidthHelp project={project} />}
         />
 
         <div className="grid two">
