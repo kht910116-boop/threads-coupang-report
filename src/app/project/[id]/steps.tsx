@@ -1234,12 +1234,20 @@ function SceneCard({
   setProject,
   compact = false,
   showImage = false,
+  uploadKind = "image",
 }: {
   scene: Scene;
   project: Project;
   setProject: (p: Project) => void;
   compact?: boolean;
   showImage?: boolean;
+  /**
+   * 이 자리에서 올리는 파일의 종류. 장면의 mode가 아니라 **단계**가 정한다.
+   *
+   * 예전에는 mode로 정했는데, 영상으로 표시한 장면에서는 이미지를 올릴 수 없었다.
+   * 영상 장면도 이미지(컷)를 갖는다 — 그게 영상의 재료다.
+   */
+  uploadKind?: "image" | "video";
 }) {
   const [summary, setSummary] = useState(scene.summaryKo);
   const [prompt, setPrompt] = useState(scene.prompt);
@@ -1270,7 +1278,7 @@ function SceneCard({
           style={{ width: 96, padding: "2px 6px", fontSize: 12 }}
         >
           <option value="image">이미지</option>
-          <option value="video">AI 영상</option>
+          <option value="video">영상으로 대체</option>
         </select>
         <select
           value={scene.effect}
@@ -1297,7 +1305,8 @@ function SceneCard({
         {showImage && (
           <div>
             <div className={thumbClass(project.preset.aspect)}>
-              {scene.mode === "video" && scene.video ? (
+              {/* 영상이 붙어 있으면 그게 최종본이다. 없으면 컷 이미지가 그대로 쓰인다. */}
+              {scene.video ? (
                 <video src={assetUrl(scene.video.path)} controls preload="metadata" />
               ) : scene.image ? (
                 // 로컬 파일이라 next/image 최적화가 의미 없다.
@@ -1310,10 +1319,12 @@ function SceneCard({
             <div className="row" style={{ marginTop: 6 }}>
               <UploadButton
                 projectId={project.id}
-                kind={scene.mode === "video" ? "video" : "image"}
+                kind={uploadKind}
                 targetId={scene.id}
                 onDone={setProject}
               />
+              {/* 영상이 컷을 가리고 있을 때, 밑에 뭐가 깔려 있는지는 알려줘야 한다. */}
+              {scene.video && scene.image && <small className="dim">컷 있음</small>}
             </div>
           </div>
         )}
@@ -1355,8 +1366,18 @@ export function StepVisuals({
   const choices = useChoices();
 
   const scenes = [...project.scenes].sort((a, b) => a.index - b.index);
-  const targets = kind === "image" ? scenes : scenes.filter((s) => s.mode === "video");
-  const done = targets.filter((s) => (kind === "image" ? s.image : s.video)).length;
+  /**
+   * 두 단계 모두 **전체 장면**을 보여준다.
+   *
+   * 6단계는 5단계 이미지를 그대로 물려받고, 영상으로 대체할 장면만 파일이 바뀐다.
+   * 예전에는 mode가 video인 장면만 6단계에 모았는데, 그러면 '어느 장면을 영상으로
+   * 바꿀까'를 정하는 자리가 이 단계에 없었다 — 스토리보드로 돌아가서 표시하고
+   * 와야 했다.
+   */
+  const targets = scenes;
+  /** 실제로 만들 것들. 영상은 '영상으로 대체'로 표시한 장면만이다. */
+  const marked = kind === "image" ? scenes : scenes.filter((s) => s.mode === "video");
+  const done = marked.filter((s) => (kind === "image" ? s.image : s.video)).length;
   const sections = [...project.sections].sort((a, b) => a.order - b.order);
   // 여기는 스토리보드와 달리 '전체'가 기본이다. 그림이 다 찼는지 훑어보는 자리라서다.
   const activeTab = tab;
@@ -1394,6 +1415,18 @@ export function StepVisuals({
       }
     });
   };
+
+  /** 고른 장면의 모드를 한꺼번에 바꾼다. 영상으로 만들 장면을 여기서 정한다. */
+  const setMode = (mode: "image" | "video") =>
+    run("표시를 바꾸는 중…", async () => {
+      setProject(
+        await api<Project>(`/api/projects/${project.id}`, {
+          method: "PATCH",
+          json: { scenes: [...picked].map((id) => ({ id, mode })) },
+        }),
+      );
+      setPicked(new Set());
+    });
 
   const toggle = (id: string) =>
     setPicked((current) => {
@@ -1457,11 +1490,12 @@ export function StepVisuals({
         )}
         {kind === "video" && (
           <p className="dim" style={{ marginTop: 0, lineHeight: 1.75 }}>
-            장면 카드에서 모드를 <strong>AI 영상</strong>으로 바꾼 장면만 여기 모입니다.
-            비싸고 느립니다 — 한 장면에 몇 분씩 걸리고, <strong>시작하면 중간에 멈출 수
-            없습니다.</strong> 영상은 선택 산출물이라 <strong>하나도 만들지 않고 다음
-            단계로 넘어가도 됩니다.</strong> 직접 편집한 파일을 장면마다
-            <strong> 올리기</strong>로 넣어도 되고, 그게 가장 빠릅니다.
+            5단계 이미지가 그대로 넘어옵니다. 여기서는 <strong>움직이면 좋을 장면만
+            골라 영상으로 바꿉니다</strong> — 장면의 모드를 <strong>영상으로 대체</strong>로
+            두면 그 장면만 파일이 영상으로 바뀌고, 나머지는 컷 이미지 그대로 갑니다.
+            영상은 선택 산출물이라 <strong>하나도 만들지 않고 다음 단계로 넘어가도
+            됩니다.</strong> 비싸고 느립니다 — 한 장면에 몇 분씩 걸리고,{" "}
+            <strong>시작하면 중간에 멈출 수 없습니다.</strong>
           </p>
         )}
 
@@ -1469,9 +1503,9 @@ export function StepVisuals({
           <button
             className="primary"
             onClick={() => void generate()}
-            disabled={Boolean(busy) || done === targets.length}
+            disabled={Boolean(busy) || done === marked.length}
           >
-            아직 없는 {kind === "image" ? "이미지" : "영상"} 만들기 ({targets.length - done}개)
+            아직 없는 {kind === "image" ? "이미지" : "영상"} 만들기 ({marked.length - done}개)
           </button>
           <button
             onClick={() => void generate({ redo: true, sceneIds: [...picked] })}
@@ -1524,7 +1558,7 @@ export function StepVisuals({
         <Confirm
           title={`${kind === "image" ? "이미지" : "영상"}를 전부 다시 만들까요?`}
           warn={`이미 만들어 둔 ${done}개가 지워지고 처음부터 다시 만듭니다. 잠근 장면도 함께 지워집니다.`}
-          basis={`장면 ${targets.length}개 · 구독 사용량을 씁니다`}
+          basis={`장면 ${marked.length}개 · 구독 사용량을 씁니다`}
           confirmLabel="전부 다시"
           onCancel={() => setRedoAsk(false)}
           onConfirm={() => {
@@ -1536,18 +1570,18 @@ export function StepVisuals({
 
       {targets.length === 0 ? (
         <Empty
-          title={kind === "video" ? "영상으로 만들 장면이 없습니다." : "아직 장면이 없습니다."}
-          desc={
-            kind === "video"
-              ? "장면 카드에서 모드를 'AI 영상'으로 바꾸면 그 장면만 여기 모입니다."
-              : "4단계 스토리보드에서 장면을 만들면 여기에 한 장씩 채워집니다."
-          }
+          title="아직 장면이 없습니다."
+          desc="4단계 스토리보드에서 장면을 만들면 여기에 한 장씩 채워집니다."
         />
       ) : (
         <div className="card">
           <div className="card-head">
             <h3>
-              장면 <span className="count">{done}/{targets.length} 완료</span>
+              장면{" "}
+              <span className="count">
+                {done}/{marked.length} 완료
+                {kind === "video" && ` · 나머지 ${scenes.length - marked.length}개는 컷 그대로`}
+              </span>
             </h3>
           </div>
 
@@ -1588,6 +1622,20 @@ export function StepVisuals({
                 선택 비우기 ({picked.size})
               </button>
             )}
+            {/*
+              영상으로 바꿀 장면을 고르는 자리. 레퍼런스도 '씬을 골라서 만든다'였다.
+              스토리보드로 돌아가 장면마다 드롭다운을 만지게 하면 안 된다.
+            */}
+            {kind === "video" && picked.size > 0 && (
+              <>
+                <button className="sm" onClick={() => void setMode("video")}>
+                  고른 {picked.size}개를 영상으로 표시
+                </button>
+                <button className="sm" onClick={() => void setMode("image")}>
+                  컷 이미지로 되돌리기
+                </button>
+              </>
+            )}
           </div>
 
           {shown.map((scene) => (
@@ -1600,7 +1648,13 @@ export function StepVisuals({
                 />
                 <span>씬 {scene.index + 1}</span>
               </label>
-              <SceneCard scene={scene} project={project} setProject={setProject} showImage />
+              <SceneCard
+                scene={scene}
+                project={project}
+                setProject={setProject}
+                showImage
+                uploadKind={kind}
+              />
             </div>
           ))}
         </div>
@@ -2002,9 +2056,8 @@ export function StepExport({ project, run, busy }: PanelProps) {
   const [result, setResult] = useState<ExportResult | null>(null);
 
   const totalSec = project.scenes.reduce((sum, s) => sum + s.durationSec, 0);
-  const missingImage = project.scenes.filter(
-    (s) => !(s.mode === "video" ? s.video : s.image),
-  ).length;
+  // 영상이 없으면 컷 이미지로 나간다. 둘 다 없어야 진짜 빈 장면이다.
+  const missingImage = project.scenes.filter((s) => !s.image && !s.video).length;
   const missingAudio = project.lines.filter((l) => !l.audio).length;
 
   return (

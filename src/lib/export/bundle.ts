@@ -76,9 +76,9 @@ export async function exportProject(project: Project): Promise<ExportResult> {
     }
   }
 
-  const missingVisual = project.scenes.filter(
-    (s) => !(s.mode === "video" ? s.video : s.image),
-  ).length;
+  // 영상으로 표시한 장면도 영상이 아직 없으면 컷 이미지로 나간다(capcut.ts가 그렇게
+  // 고른다). 그러니 '빠지는 장면'은 이미지도 영상도 없는 것뿐이다.
+  const missingVisual = project.scenes.filter((s) => !s.image && !s.video).length;
   if (missingVisual > 0) {
     warnings.push(`${missingVisual}개 장면에 이미지/영상이 없어 타임라인에서 빠집니다.`);
   }

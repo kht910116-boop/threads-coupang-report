@@ -113,7 +113,13 @@ export async function POST(request: Request, { params }: Params) {
       scenes: project.scenes.map((s) => {
         const relative = pathBySceneId.get(s.id);
         if (!relative) return s;
-        return { ...s, [kind]: { path: relative, provider: "upload", createdAt: now() } };
+        return {
+          ...s,
+          [kind]: { path: relative, provider: "upload", createdAt: now() },
+          // 영상을 붙였다는 건 이 장면을 영상으로 대체하겠다는 뜻이다. 표시를 따로
+          // 하게 두면 파일만 올려놓고 컷 이미지가 나가는 일이 생긴다.
+          ...(kind === "video" ? { mode: "video" as const } : {}),
+        };
       }),
     };
 

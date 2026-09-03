@@ -52,8 +52,9 @@ export async function GET(request: Request, { params }: Params) {
       ];
 
   const rows = scenes
-    // 영상은 선택 산출물이다. 'AI 영상'으로 표시한 씬만 내보내야 94줄짜리 표를 받고
-    // 그중 어느 것을 만들어야 하는지 다시 골라내는 일이 없다.
+    // 영상은 선택 산출물이다. 5단계 이미지가 그대로 넘어가고 '영상으로 대체'로
+    // 표시한 장면만 파일이 바뀌므로, 표에도 그 장면만 나가야 한다. 95줄을 받아
+    // 그중 어느 것을 만들어야 하는지 다시 골라내게 하면 안 된다.
     .filter((scene) => !isVideo || scene.mode === "video")
     .map((scene) => {
       const number = scene.index + 1;
@@ -71,7 +72,8 @@ export async function GET(request: Request, { params }: Params) {
 
   if (rows.length === 0) {
     return new Response(
-      "영상으로 표시한 씬이 없습니다. 씬의 모드를 'AI 영상'으로 바꾼 뒤 다시 받으세요.",
+      "영상으로 대체할 장면이 없습니다. 영상화 단계에서 장면을 고르고 " +
+        "'영상으로 표시'를 누른 뒤 다시 받으세요.",
       { status: 400 },
     );
   }
