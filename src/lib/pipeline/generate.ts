@@ -4,6 +4,8 @@ import {
   scriptSystemPrompt,
   scriptUserPrompt,
   sectionLabel,
+  splitSystemPrompt,
+  splitUserPrompt,
   storyboardSystemPrompt,
   storyboardUserPrompt,
 } from "@/lib/engine/prompt";
@@ -40,22 +42,8 @@ export interface ScriptResult {
   lines: ScriptLine[];
 }
 
-export async function generateScript(
-  engine: Engine,
-  project: Project,
-): Promise<ScriptResult> {
-  const raw = await engine.complete({
-    system: scriptSystemPrompt(project.preset),
-    user: scriptUserPrompt({
-      topic: project.topic,
-      brief: project.brief,
-      references: project.references,
-    }),
-    schema: toSchema(scriptPlanSchema),
-  });
-
-  const plan = scriptPlanSchema.parse(extractJson(raw));
-
+/** 모델이 낸 계획을 저장할 모양(구간 + 통짜 번호가 붙은 줄)으로 편다. */
+function buildScript(plan: z.infer<typeof scriptPlanSchema>): ScriptResult {
   const sections: ScriptSection[] = [];
   const lines: ScriptLine[] = [];
   let partNumber = 0;
@@ -93,6 +81,85 @@ export async function generateScript(
     sections,
     lines,
   };
+}
+
+export async function generateScript(
+  engine: Engine,
+  project: Project,
+): Promise<ScriptResult> {
+  const raw = await engine.complete({
+    system: scriptSystemPrompt(project.preset),
+    user: scriptUserPrompt({
+      topic: project.topic,
+      brief: project.brief,
+      references: project.references,
+    }),
+    schema: toSchema(scriptPlanSchema),
+  });
+
+  return buildScript(scriptPlanSchema.parse(extractJson(raw)));
+}
+
+/**
+ * 대조용 정규화.
+ *
+ * 줄을 나누는 과정에서 공백과 줄바꿈은 필연적으로 달라진다(문단이 줄로 쪼개지므로).
+ * 그래서 공백만 지우고 나머지 글자를 그대로 비교한다. 맞춤법·문장부호·오타까지
+ * 전부 대조 대상이다 — 모델이 "고쳐준" 것을 잡아내는 게 이 함수의 목적이다.
+ */
+const normalizeForCompare = (text: string) => text.replace(/\s+/gu, "");
+
+/** 처음으로 어긋나는 자리를 사람이 읽을 수 있게 뽑는다. */
+function firstDifference(original: string, rebuilt: string): string {
+  const at = [...original].findIndex((ch, i) => ch !== rebuilt[i]);
+  const from = Math.max(0, (at < 0 ? Math.min(original.length, rebuilt.length) : at) - 20);
+  const cut = (text: string) => text.slice(from, from + 60);
+  return [`원문: …${cut(original)}…`, `결과: …${cut(rebuilt)}…`].join("\n");
+}
+
+/**
+ * 이미 써 둔 대본을 구간과 자막 줄로 나눈다.
+ *
+ * 글을 새로 쓰지 않는다. 모델은 어디서 끊을지만 정하고, 그 결과를 **원문과 기계로
+ * 대조한다.** 공백을 지운 뒤 한 글자라도 다르면 저장하지 않고 실패로 돌린다.
+ * 프롬프트로 "고치지 마라"라고 시켰어도 모델은 종종 다듬는다. 사용자가 공들여 쓴
+ * 대본이 조용히 바뀌는 것보다 실패하는 편이 낫다.
+ */
+export async function splitScript(
+  engine: Engine,
+  project: Project,
+  text: string,
+): Promise<ScriptResult> {
+  const raw = await engine.complete({
+    system: splitSystemPrompt(project.preset),
+    user: splitUserPrompt(text),
+    schema: toSchema(scriptPlanSchema),
+  });
+
+  const result = buildScript(scriptPlanSchema.parse(extractJson(raw)));
+
+  const original = normalizeForCompare(text);
+  const rebuilt = normalizeForCompare(result.lines.map((line) => line.text).join(""));
+
+  if (original !== rebuilt) {
+    const missing = original.length - rebuilt.length;
+    throw new Error(
+      [
+        "나눈 결과가 원문과 다릅니다. 대본이 바뀔 수 있어 저장하지 않았습니다.",
+        missing > 0
+          ? `원문보다 ${missing}자 모자랍니다 (빠뜨렸을 수 있습니다).`
+          : missing < 0
+            ? `원문보다 ${-missing}자 많습니다 (덧붙였을 수 있습니다).`
+            : "글자 수는 같지만 내용이 다릅니다 (다듬었을 수 있습니다).",
+        "",
+        firstDifference(original, rebuilt),
+        "",
+        "다시 시도하거나, 대본을 조금 손봐서 넣어보세요.",
+      ].join("\n"),
+    );
+  }
+
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────

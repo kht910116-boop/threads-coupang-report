@@ -209,10 +209,25 @@ function Empty({ title, desc }: { title: string; desc: string }) {
 
 // ─── 1. 대본 ────────────────────────────────────────────────
 
+/**
+ * 대본을 어떻게 마련할지.
+ *
+ * write — 주제를 주면 앱이 쓴다.
+ * paste — 밖에서 써 온 대본을 넣는다. 앱은 나누기만 한다.
+ *
+ * 드롭다운이 아니라 카드 두 장으로 묻는다. 고르기 전에 차이를 읽을 수 있어야 한다.
+ */
+type ScriptMode = "write" | "paste";
+
 export function StepScript({ project, setProject, run, busy }: PanelProps) {
   const [topic, setTopic] = useState(project.topic);
   const [brief, setBrief] = useState(project.brief);
   const [refs, setRefs] = useState(project.references);
+  const [pasted, setPasted] = useState("");
+  // 이미 대본이 있으면 갈림길을 다시 묻지 않는다. 주제가 있으면 그때 쓴 것으로 본다.
+  const [mode, setMode] = useState<ScriptMode | null>(() =>
+    project.lines.length > 0 ? "write" : null,
+  );
 
   const save = () =>
     run("저장 중…", async () => {
@@ -234,8 +249,127 @@ export function StepScript({ project, setProject, run, busy }: PanelProps) {
       setProject(await api<Project>(`/api/projects/${project.id}/script`, { method: "POST" }));
     });
 
+  const split = () =>
+    run("대본을 구간과 자막 줄로 나누는 중… (1~3분)", async () => {
+      await api(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        json: { topic, brief, references: refs },
+      });
+      setProject(
+        await api<Project>(`/api/projects/${project.id}/script`, {
+          json: { mode: "paste", text: pasted },
+        }),
+      );
+    });
+
+  // 아직 고르지 않았으면 갈림길부터 보여준다.
+  if (mode === null) {
+    return (
+      <div className="choice-grid">
+        <button className="choice" onClick={() => setMode("write")}>
+          <strong>AI로 대본 생성</strong>
+          <span>
+            주제와 레퍼런스 링크를 주면 이 스타일에 맞는 대본을 씁니다.
+            구간과 자막 줄까지 한 번에 나옵니다.
+          </span>
+        </button>
+        <button className="choice" onClick={() => setMode("paste")}>
+          <strong>직접 넣기</strong>
+          <span>
+            써 둔 대본을 붙여 넣습니다. 글은 그대로 두고 구간과 자막 줄로 나누기만 합니다.
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === "paste") {
+    const chars = [...pasted].length;
+    return (
+      <>
+        <div className="mode-line">
+          <span>직접 넣기</span>
+          <button className="sm" onClick={() => setMode(null)}>방식 바꾸기</button>
+        </div>
+
+        <div className="card">
+          {/*
+            붙여넣기 칸 바로 위에 둔다. 다 넣고 나서 읽으라고 하면 아무도 안 읽는다.
+            여기 적힌 것들은 전부 TTS가 이상하게 읽는 것들이다.
+          */}
+          <h3>대본 작성 가이드</h3>
+          <ul className="dim" style={{ margin: "0 0 14px", paddingLeft: 18, lineHeight: 1.9 }}>
+            <li>문장 끝 온점(.) 뒤에는 반드시 띄어쓰기</li>
+            <li>따옴표는 피하세요 — 자막이 지저분해지고 음성이 끊깁니다</li>
+            <li>문단 구분은 줄바꿈으로</li>
+            <li>특수문자(※ ★ → 등)와 이모지는 넣지 마세요</li>
+            <li>URL·이메일 주소는 그대로 읽힙니다. 넣지 마세요</li>
+            <li>단어 뒤 괄호 금지 (예: 클로드(Claude) → 클로드)</li>
+          </ul>
+
+          <div className="seg-label">
+            <span>대본</span>
+            <span className="seg-hint">{chars.toLocaleString()}자</span>
+          </div>
+          <textarea
+            rows={14}
+            value={pasted}
+            placeholder="써 둔 대본을 여기에 붙여 넣으세요."
+            onChange={(e) => setPasted(e.target.value)}
+          />
+
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="primary" onClick={split} disabled={Boolean(busy) || chars === 0}>
+              {project.lines.length > 0 ? "다시 나누기" : "구간·자막 줄로 나누기"}
+            </button>
+            <small className="dim">
+              글자는 한 자도 바꾸지 않습니다. 바뀌면 저장하지 않고 알려드립니다.
+            </small>
+          </div>
+        </div>
+
+        {project.lines.length === 0 ? (
+          <Empty
+            title="나누면 여기에 구간이 나타납니다."
+            desc="훅·인트로부터 클로징까지 어떻게 나뉘었는지 보여줍니다. 줄 단위 편집은 2단계에서 합니다."
+          />
+        ) : (
+          <div className="card">
+            <div className="card-head">
+              <h3>
+                나뉜 결과{" "}
+                <span className="count">
+                  {project.sections.length}구간 · {project.lines.length}줄
+                </span>
+              </h3>
+            </div>
+            {[...project.sections]
+              .sort((a, b) => a.order - b.order)
+              .map((section) => {
+                const count = project.lines.filter((l) => l.sectionId === section.id).length;
+                return (
+                  <div className="row" key={section.id} style={{ marginBottom: 6 }}>
+                    <span className={`badge ${section.kind === "hook" ? "hook" : "accent"}`}>
+                      {sectionName(section)}
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>{section.title}</span>
+                    <small>{count}줄</small>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
+      <div className="mode-line">
+        <span>AI로 대본 생성</span>
+        <button className="sm" onClick={() => setMode(null)}>방식 바꾸기</button>
+      </div>
+
       <div className="card">
         <div className="field">
           <label>주제</label>
