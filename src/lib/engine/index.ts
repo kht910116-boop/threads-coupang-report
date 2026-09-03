@@ -1,4 +1,5 @@
 import { apiEngine } from "./api";
+import { googleEngine } from "./google";
 import { makeCliEngine } from "./cli";
 import { makeWebEngine } from "./web";
 import { listAgents } from "./agents";
@@ -16,7 +17,7 @@ import type { Engine } from "./types";
 
 export async function allEngines(): Promise<Engine[]> {
   const [agents, recipes] = await Promise.all([listAgents(), listWebRecipes()]);
-  return [...agents.map(makeCliEngine), ...recipes.map(makeWebEngine), apiEngine];
+  return [...agents.map(makeCliEngine), ...recipes.map(makeWebEngine), apiEngine, googleEngine];
 }
 
 /** 프로젝트가 엔진을 지정했으면 그걸, 아니면 환경변수, 아니면 자동 선택. */
@@ -91,6 +92,17 @@ export async function engineStatus(probeWeb = false) {
       ready: await apiEngine.isAvailable(),
       verified: false,
       notes: "종량제 API 키를 쓸 때만 필요하다. 구독제라면 안 써도 된다.",
+    },
+    {
+      id: googleEngine.id,
+      label: googleEngine.label,
+      target: "GOOGLE_GENAI_API_KEY",
+      kind: "api" as const,
+      ready: await googleEngine.isAvailable(),
+      verified: false,
+      notes:
+        "구독만 쓴다는 원칙의 의도적 예외 — 무료 한도 안에서만 쓰기로 한 경로다. " +
+        "대량 작업은 구독 CLI로 돌릴 것.",
     },
   ];
 }
