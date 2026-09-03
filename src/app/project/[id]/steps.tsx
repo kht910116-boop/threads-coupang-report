@@ -1221,6 +1221,119 @@ export function StepVisuals({
 
 // ─── 7. 자막·효과 ───────────────────────────────────────────
 
+const CAPTION_ON_OPTIONS = [
+  { id: "on", label: "켬", hint: "장면 위에 자막이 얹힙니다" },
+  { id: "off", label: "끔", hint: "SRT는 그대로 나옵니다. 캡컷에서 직접 얹으세요" },
+] as const;
+
+const CAPTION_POSITION_OPTIONS = [
+  { id: "top", label: "위", hint: "아래쪽 화면을 비워둘 때" },
+  { id: "center", label: "가운데", hint: "쇼츠에서 눈이 머무는 자리" },
+  { id: "bottom", label: "아래", hint: "권장 — 유튜브에서 가장 익숙한 자리" },
+] as const;
+
+/** 한 줄 길이도 숫자 대신 이름으로 받고, 실제 글자수를 힌트로 보여준다. */
+const LINE_WIDTHS = { narrow: 16, normal: 20, wide: 26 } as const;
+type LineWidth = keyof typeof LINE_WIDTHS;
+
+const LINE_WIDTH_OPTIONS = [
+  { id: "narrow", label: "짧게", hint: "한 줄 최대 16자 — 줄이 자주 바뀝니다" },
+  { id: "normal", label: "보통", hint: "한 줄 최대 20자" },
+  { id: "wide", label: "길게", hint: "한 줄 최대 26자 — 글자가 작아집니다" },
+] as const satisfies ReadonlyArray<{ id: LineWidth; label: string; hint: string }>;
+
+/** 지금 값에 가장 가까운 이름을 고른다. 예전에 숫자로 넣어둔 값도 어딘가에는 걸린다. */
+function lineWidthOf(chars: number): LineWidth {
+  return (Object.keys(LINE_WIDTHS) as LineWidth[]).reduce((best, key) =>
+    Math.abs(LINE_WIDTHS[key] - chars) < Math.abs(LINE_WIDTHS[best] - chars) ? key : best,
+  );
+}
+
+/** 색은 견본을 함께 보여준다. #FFFFFF만 보고 어떤 색인지 아는 사람은 없다. */
+function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      <div className="row" style={{ flexWrap: "nowrap", gap: 8 }}>
+        <input
+          type="color"
+          value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#ffffff"}
+          onChange={(e) => onChange(e.target.value.toUpperCase())}
+          style={{ width: 40, padding: 2, flex: "0 0 auto" }}
+        />
+        <input className="mono" value={value} onChange={(e) => onChange(e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 자막 미리보기.
+ *
+ * 첫 장면 그림 위에 실제 설정으로 자막을 그린다. 그림이 아직 없으면 빈 화면에
+ * 그린다 — 크기와 위치는 그래도 보인다.
+ *
+ * 크기는 화면 높이 대비 비율로 다룬다(캡컷 드래프트도 그 기준이다). 그래서 미리보기
+ * 상자를 컨테이너로 잡고 cqh 단위를 쓴다. px로 그리면 미리보기 크기가 바뀔 때
+ * 실제 결과와 어긋난다.
+ */
+function CaptionPreview({ project, caption }: { project: Project; caption: Project["caption"] }) {
+  const first = [...project.scenes].sort((a, b) => a.index - b.index)[0];
+  const sample =
+    [...project.lines].sort((a, b) => a.index - b.index)[0]?.text ?? "여기에 자막이 이렇게 얹힙니다";
+  const text = [...sample].slice(0, caption.maxCharsPerLine).join("");
+
+  const align =
+    caption.position === "top" ? "flex-start" : caption.position === "center" ? "center" : "flex-end";
+
+  // 상자 크기를 픽셀로 못 박고 글자 크기를 직접 계산한다.
+  // 처음엔 컨테이너 쿼리(cqh)로 했는데 글자가 기대의 5분의 1 크기로 나왔다.
+  // 미리보기는 실제 비율이 맞아야 쓸모가 있으므로 추측 대신 숫자로 잡는다.
+  const [w, h] = project.preset.aspect.split(":").map(Number);
+  const boxW = 420;
+  const boxH = Math.round((boxW * (h || 9)) / (w || 16));
+  const fontPx = Math.max(6, (boxH * caption.fontSize) / 100);
+
+  return (
+    <div
+      className={`cap-preview ${first?.image ? "" : "blank"}`}
+      style={{
+        width: boxW,
+        height: boxH,
+        alignItems: align,
+        padding: `${Math.round(boxH * caption.marginRatio)}px 4%`,
+      }}
+    >
+      {first?.image && (
+        // 로컬 파일이라 next/image 최적화가 의미 없다.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={assetUrl(first.image.path)} alt="" />
+      )}
+      {caption.enabled && (
+        <span
+          className="cap-text"
+          style={{
+            fontFamily: `"${caption.fontFamily}", sans-serif`,
+            fontSize: `${fontPx}px`,
+            color: caption.color,
+            WebkitTextStroke: `${caption.strokeWidth}em ${caption.strokeColor}`,
+          }}
+        >
+          {text}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function StepStyling({ project, setProject, run, busy }: PanelProps) {
   const [caption, setCaption] = useState(project.caption);
   const [effects, setEffects] = useState(project.effects);
@@ -1258,7 +1371,14 @@ export function StepStyling({ project, setProject, run, busy }: PanelProps) {
     <>
       <div className="card">
         <h3>자막</h3>
-        <div className="grid two">
+
+        {/*
+          숫자만으로는 판단이 안 되는 자리다. 크기 12가 큰지 작은지, 테두리 0.08이
+          충분한지는 눈으로 봐야 안다. 그래서 실제 장면 그림 위에 실제 설정으로 그린다.
+        */}
+        <CaptionPreview project={project} caption={caption} />
+
+        <div className="grid two" style={{ marginTop: 14 }}>
           <div className="field">
             <label>폰트 — 캡컷에 설치된 이름 그대로 (미리캔버스·캔바 폰트 가능)</label>
             <input
@@ -1267,25 +1387,49 @@ export function StepStyling({ project, setProject, run, busy }: PanelProps) {
             />
           </div>
           <div className="field">
-            <label>크기</label>
+            <label>크기 (화면 높이 대비 %)</label>
             <input
               type="number" value={caption.fontSize}
               onChange={(e) => setCaption({ ...caption, fontSize: Number(e.target.value) })}
             />
           </div>
-          <div className="field">
-            <label>위치</label>
-            <select
-              value={caption.position}
-              onChange={(e) =>
-                setCaption({ ...caption, position: e.target.value as typeof caption.position })
-              }
-            >
-              <option value="top">위</option>
-              <option value="center">가운데</option>
-              <option value="bottom">아래</option>
-            </select>
-          </div>
+        </div>
+
+        <div className="grid two">
+          <ColorField
+            label="글자색"
+            value={caption.color}
+            onChange={(color) => setCaption({ ...caption, color })}
+          />
+          <ColorField
+            label="테두리색"
+            value={caption.strokeColor}
+            onChange={(strokeColor) => setCaption({ ...caption, strokeColor })}
+          />
+        </div>
+
+        <Seg
+          label="자막"
+          value={caption.enabled ? "on" : "off"}
+          options={CAPTION_ON_OPTIONS}
+          onChange={(id) => setCaption({ ...caption, enabled: id === "on" })}
+        />
+
+        <Seg
+          label="위치"
+          value={caption.position}
+          options={CAPTION_POSITION_OPTIONS}
+          onChange={(position) => setCaption({ ...caption, position })}
+        />
+
+        <Seg
+          label="한 줄 길이"
+          value={lineWidthOf(caption.maxCharsPerLine)}
+          options={LINE_WIDTH_OPTIONS}
+          onChange={(id) => setCaption({ ...caption, maxCharsPerLine: LINE_WIDTHS[id] })}
+        />
+
+        <div className="grid two">
           <div className="field">
             <label>가장자리 여백 (0~0.5)</label>
             <input
@@ -1294,31 +1438,11 @@ export function StepStyling({ project, setProject, run, busy }: PanelProps) {
             />
           </div>
           <div className="field">
-            <label>글자색</label>
-            <input value={caption.color}
-              onChange={(e) => setCaption({ ...caption, color: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>테두리색</label>
-            <input value={caption.strokeColor}
-              onChange={(e) => setCaption({ ...caption, strokeColor: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>한 줄 최대 글자수</label>
+            <label>테두리 굵기 (글자 크기 대비)</label>
             <input
-              type="number" value={caption.maxCharsPerLine}
-              onChange={(e) => setCaption({ ...caption, maxCharsPerLine: Number(e.target.value) })}
+              type="number" step="0.01" value={caption.strokeWidth}
+              onChange={(e) => setCaption({ ...caption, strokeWidth: Number(e.target.value) })}
             />
-          </div>
-          <div className="field">
-            <label>자막 켜기</label>
-            <select
-              value={caption.enabled ? "on" : "off"}
-              onChange={(e) => setCaption({ ...caption, enabled: e.target.value === "on" })}
-            >
-              <option value="on">켬</option>
-              <option value="off">끔</option>
-            </select>
           </div>
         </div>
 
