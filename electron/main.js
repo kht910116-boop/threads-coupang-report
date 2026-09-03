@@ -29,24 +29,37 @@ function resolveServerDir() {
 }
 
 /**
- * 프로젝트·에셋·내보내기·브라우저 프로파일이 사는 곳.
+ * 프로젝트·에셋·내보내기·API 키·브라우저 프로파일이 사는 곳.
  *
- * 사용자가 결과물을 탐색기로 찾아가야 하므로 실행 파일 옆 `app-data`를 먼저 쓴다.
- * 다만 Program Files에 설치하면 거기는 못 쓰므로, 쓸 수 없으면 사용자 폴더로 물러선다.
- * 둘 다 싫으면 AUTOTUBE_DATA_DIR로 덮어쓴다.
+ * **실행 파일 옆에 두지 않는다.** 예전에는 그랬는데, 개발 중에 다시 구우면
+ * electron-builder가 출력 폴더를 통째로 지우고 새로 만들면서 그 안의 작업물까지
+ * 같이 날려버렸다. 실제로 사용자가 넣어둔 API 키가 그렇게 사라졌다.
+ *
+ * 그래서 사용자 폴더(%APPDATA%\AutoTube Studiopp-data)에 둔다. 굽는 것과 무관한
+ * 자리이고, 앱을 지웠다 다시 깔아도 작업물이 남는다.
+ *
+ * 탐색기로 찾아가야 할 때는 '파일 → 데이터 폴더 열기' 메뉴가 열어준다.
+ * 다른 곳에 두고 싶으면 AUTOTUBE_DATA_DIR로 덮어쓴다.
  */
 function resolveDataDir() {
   if (process.env.AUTOTUBE_DATA_DIR) {
     return path.resolve(process.env.AUTOTUBE_DATA_DIR);
   }
-  const beside = path.join(path.dirname(process.execPath), "app-data");
+  const home = path.join(app.getPath("userData"), "app-data");
+
+  // 예전 자리에 쓰던 것이 있으면 한 번 옮겨준다. 안 그러면 작업물이 사라진 것처럼 보인다.
+  const legacy = path.join(path.dirname(process.execPath), "app-data");
   try {
-    fs.mkdirSync(beside, { recursive: true });
-    fs.accessSync(beside, fs.constants.W_OK);
-    return beside;
+    if (fs.existsSync(legacy) && !fs.existsSync(home)) {
+      fs.mkdirSync(path.dirname(home), { recursive: true });
+      fs.cpSync(legacy, home, { recursive: true });
+    }
   } catch {
-    return path.join(app.getPath("userData"), "app-data");
+    // 옮기지 못해도 앱은 떠야 한다. 새 자리에서 빈 상태로 시작한다.
   }
+
+  fs.mkdirSync(home, { recursive: true });
+  return home;
 }
 
 /**

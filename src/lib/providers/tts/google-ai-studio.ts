@@ -14,6 +14,16 @@ import {
 
 const MODEL = () => process.env.GEMINI_TTS_MODEL ?? "gemini-2.5-flash-preview-tts";
 
+/**
+ * 글 엔진이 쓰는 키를 그대로 쓴다.
+ *
+ * 둘 다 같은 생성 API(generativelanguage.googleapis.com)를 부르므로 키가 같다.
+ * 같은 값을 두 칸에 붙여넣게 하는 것은 사용자에게 설명할 수 없는 요구다.
+ * 전용 키를 따로 쓰고 싶으면 GOOGLE_AI_STUDIO_API_KEY가 이긴다.
+ */
+const apiKey = () =>
+  process.env.GOOGLE_AI_STUDIO_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY ?? "";
+
 /** Gemini는 속도를 숫자로 안 받는다 — 말로 시킨다. */
 function paceInstruction(speed: number): string {
   if (speed >= 1.15) return "Say this quickly and energetically";
@@ -27,7 +37,7 @@ export const googleAiStudio: TtsProvider = {
   id: "google-ai-studio",
   label: "Google AI Studio (Gemini TTS)",
   envKeys: ["GOOGLE_AI_STUDIO_API_KEY", "GEMINI_TTS_MODEL"],
-  isConfigured: () => Boolean(process.env.GOOGLE_AI_STUDIO_API_KEY),
+  isConfigured: () => Boolean(apiKey()),
 
   async synthesize({ text, voiceId, speed, model }) {
     const voiceName = voiceId || "Kore";
@@ -37,7 +47,7 @@ export const googleAiStudio: TtsProvider = {
       {
         method: "POST",
         headers: {
-          "x-goog-api-key": process.env.GOOGLE_AI_STUDIO_API_KEY ?? "",
+          "x-goog-api-key": apiKey(),
           "content-type": "application/json",
         },
         body: JSON.stringify({

@@ -28,10 +28,10 @@
 검은 창도 브라우저 주소창도 없습니다. 창 하나가 뜨고 그게 전부입니다.
 Node.js 설치도, `npm install`도 필요 없습니다 — 프로그램 안에 다 들어 있습니다.
 
-설치할 때 위치를 고를 수 있습니다. **Program Files 밖**(예: `D:\AutoTube Studio`)에
-넣으면 작업물이 프로그램 폴더 옆 `app-data`에 쌓여 탐색기로 찾기 쉽습니다.
-Program Files에 넣으면 거기는 쓰기 권한이 없어 `%APPDATA%\AutoTube Studio\app-data`로
-갑니다. 어느 쪽이든 **파일 → 데이터 폴더 열기** 메뉴가 그 자리를 열어줍니다.
+설치 위치는 아무 데나 괜찮습니다. 작업물(프로젝트·API 키·내보낸 파일)은
+프로그램 폴더가 아니라 `%APPDATA%\AutoTube Studio\app-data`에 따로 쌓입니다.
+프로그램을 지웠다 다시 깔아도 남습니다. **파일 → 데이터 폴더 열기** 메뉴가 그 자리를 열어줍니다.
+
 
 Windows가 "알 수 없는 게시자"라고 경고하면 **추가 정보 → 실행**을 누릅니다.
 코드 서명서를 사지 않아서 그렇습니다.
@@ -229,8 +229,8 @@ electron-builder.yml    포장 설정. 왜 그 값인지가 주석에 있다
 data/ · app-data/       프로젝트·프리셋·레시피·에셋 (gitignore)
 ```
 
-개발 중에는 `data/`, 포장된 앱에서는 실행 파일 옆 `app-data/`(또는 쓰기가 막히면
-`%APPDATA%` 아래)를 쓴다. 코드는 `AUTOTUBE_DATA_DIR` 하나만 보므로 둘의 차이를 모른다.
+개발 중에는 저장소의 `data/`, 포장된 앱에서는 `%APPDATA%\AutoTube Studio\app-data`를
+쓴다. 코드는 `AUTOTUBE_DATA_DIR` 하나만 보므로 둘의 차이를 모른다.
 
 ## 검증 상태
 

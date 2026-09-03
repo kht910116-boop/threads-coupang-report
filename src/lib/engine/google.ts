@@ -16,7 +16,18 @@ import type { Engine } from "./types";
 const KEY = () =>
   process.env.GOOGLE_GENAI_API_KEY ?? process.env.GOOGLE_AI_STUDIO_API_KEY ?? "";
 const BEARER = () => process.env.GOOGLE_GENAI_BEARER ?? "";
-const MODEL = () => process.env.GOOGLE_GENAI_MODEL ?? "gemini-2.5-pro";
+/**
+ * 기본 모델.
+ *
+ * 무료 한도에서 실제로 응답하는 것을 골랐다. 확인해보니 이랬다.
+ *   gemini-flash-latest      → OK
+ *   gemini-pro-latest        → 429 (무료 한도에 pro 몫이 없다)
+ *   gemini-3.1-pro-preview   → 429
+ *   gemini-2.5-pro / -flash  → 404 (신규 사용자에게 더 이상 제공 안 함)
+ *
+ * pro를 쓰고 싶으면 유료 등급 키를 넣고 GOOGLE_GENAI_MODEL로 바꾼다.
+ */
+const MODEL = () => process.env.GOOGLE_GENAI_MODEL ?? "gemini-flash-latest";
 const BASE = () =>
   process.env.GOOGLE_GENAI_BASE ?? "https://generativelanguage.googleapis.com/v1beta";
 
@@ -72,10 +83,18 @@ export const googleEngine: Engine = {
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      // 429는 무료 한도를 넘긴 것이다. 그대로 넘기면 무슨 일인지 알 수 없다.
+      // 이 API의 오류는 그대로 보여주면 무슨 일인지 알 수 없다. 흔한 둘을 풀어 쓴다.
       if (response.status === 429) {
         throw new Error(
-          "구글 생성 API 무료 한도를 넘겼습니다. 잠시 뒤 다시 하거나 구독 CLI(claude 등)로 돌리세요.",
+          `무료 한도를 넘겼거나 이 모델(${MODEL()})에 무료 몫이 없습니다. ` +
+            "pro 계열은 무료 등급에서 막혀 있습니다 — GOOGLE_GENAI_MODEL을 " +
+            "gemini-flash-latest로 두거나, 구독 CLI(claude 등)로 돌리세요.",
+        );
+      }
+      if (response.status === 404 && /no longer available/i.test(body)) {
+        throw new Error(
+          `모델 ${MODEL()}은(는) 더 이상 제공되지 않습니다. GOOGLE_GENAI_MODEL을 ` +
+            "gemini-flash-latest 같은 현행 모델로 바꾸세요.",
         );
       }
       throw new Error(`구글 생성 API 오류 ${response.status}: ${body.slice(0, 300)}`);

@@ -272,6 +272,11 @@ promptSelector를 맞췄다. 두 가지를 잡았다.
 
 ## 함정
 
+- **작업물은 실행 파일 옆에 두지 않는다.** 예전에는 exe 옆 `app-data`에 뒀는데,
+  다시 구울 때 electron-builder가 `dist/win-unpacked`를 통째로 지우고 새로 만들면서
+  그 안의 프로젝트와 API 키까지 같이 날아갔다. 실제로 사용자가 넣어둔 키를 그렇게
+  지웠다. 지금은 `%APPDATA%\AutoTube Studio\app-data`에 둔다 — 굽는 것과 무관한 자리다.
+  예전 자리에 있던 것은 첫 실행 때 한 번 옮겨준다(`electron/main.js`의 resolveDataDir).
 - **화면을 고쳤으면 다시 구워야 앱에 반영된다.** 이건 웹앱이 아니라 설치본이다.
   `npm run dev`로 확인하는 것은 개발 서버일 뿐이고, 사용자가 켜둔 exe는 마지막으로
   구운 시점에 멈춰 있다. "넣었습니다"라고 말하기 전에 `npm run pack`을 돌리고 앱에서
