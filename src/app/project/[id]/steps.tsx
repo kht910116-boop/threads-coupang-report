@@ -1103,6 +1103,7 @@ export function StepVisuals({
   const [image, setImage] = useState(project.image);
   const [tab, setTab] = useState<string>("");
   const [redoAsk, setRedoAsk] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const choices = useChoices();
 
   const scenes = [...project.scenes].sort((a, b) => a.index - b.index);
@@ -1113,20 +1114,59 @@ export function StepVisuals({
   const activeTab = tab;
   const shown = activeTab ? targets.filter((s) => s.sectionId === activeTab) : targets;
 
-  const generate = (redo: boolean) =>
-    run(kind === "image" ? "이미지 만드는 중…" : "영상 만드는 중… (오래 걸립니다)", async () => {
+  /**
+   * 만들기.
+   *
+   * sceneIds를 주면 그 장면만 만든다. 라우트는 처음부터 이걸 받고 있었는데 화면에서
+   * 쓰지 않아서, 한 장면만 다시 만들고 싶어도 '전부 다시'밖에 없었다. 장면이 95개인
+   * 대본에서 한 장 때문에 94장을 버리는 셈이었다.
+   */
+  const generate = (opts: { redo?: boolean; sceneIds?: string[] } = {}) => {
+    const n = opts.sceneIds?.length ?? 0;
+    const label =
+      n > 0
+        ? `고른 ${n}개 만드는 중…`
+        : kind === "image"
+          ? "이미지 만드는 중…"
+          : "영상 만드는 중… (오래 걸립니다)";
+    return run(label, async () => {
       if (kind === "image") {
         await api(`/api/projects/${project.id}`, { method: "PATCH", json: { image } });
       }
       const result = await api<{
         project: Project;
         failed: Array<{ scene: number; error: string }>;
-      }>(`/api/projects/${project.id}/visuals`, { json: { kind, redo } });
+      }>(`/api/projects/${project.id}/visuals`, {
+        json: { kind, redo: opts.redo ?? false, sceneIds: opts.sceneIds },
+      });
       setProject(result.project);
+      setPicked(new Set());
       if (result.failed.length > 0) {
         throw new Error(result.failed.map((f) => `${f.scene}번 장면: ${f.error}`).join("\n"));
       }
     });
+  };
+
+  const toggle = (id: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /** 지금 보이는 것 전부 고르기 / 풀기. 파트로 걸러둔 상태면 그 파트만 걸린다. */
+  const toggleShown = () => {
+    const all = shown.length > 0 && shown.every((sc) => picked.has(sc.id));
+    setPicked((current) => {
+      const next = new Set(current);
+      for (const scene of shown) {
+        if (all) next.delete(scene.id);
+        else next.add(scene.id);
+      }
+      return next;
+    });
+  };
 
   return (
     <>
@@ -1168,14 +1208,28 @@ export function StepVisuals({
           </>
         )}
         {kind === "video" && (
-          <p className="dim" style={{ marginTop: 0 }}>
-            장면 카드에서 모드를 <strong>AI 영상</strong>으로 바꾼 장면만 만듭니다. 비싸고 느립니다.
+          <p className="dim" style={{ marginTop: 0, lineHeight: 1.75 }}>
+            장면 카드에서 모드를 <strong>AI 영상</strong>으로 바꾼 장면만 여기 모입니다.
+            비싸고 느립니다 — 한 장면에 몇 분씩 걸리고, <strong>시작하면 중간에 멈출 수
+            없습니다.</strong> 영상은 선택 산출물이라 <strong>하나도 만들지 않고 다음
+            단계로 넘어가도 됩니다.</strong> 직접 편집한 파일을 장면마다
+            <strong> 올리기</strong>로 넣어도 되고, 그게 가장 빠릅니다.
           </p>
         )}
 
         <div className="row">
-          <button className="primary" onClick={() => generate(false)} disabled={Boolean(busy)}>
-            {kind === "image" ? "이미지" : "영상"} 만들기 ({done}/{targets.length})
+          <button
+            className="primary"
+            onClick={() => void generate()}
+            disabled={Boolean(busy) || done === targets.length}
+          >
+            아직 없는 {kind === "image" ? "이미지" : "영상"} 만들기 ({targets.length - done}개)
+          </button>
+          <button
+            onClick={() => void generate({ redo: true, sceneIds: [...picked] })}
+            disabled={Boolean(busy) || picked.size === 0}
+          >
+            고른 {picked.size}개 다시 만들기
           </button>
           <button onClick={() => setRedoAsk(true)} disabled={Boolean(busy) || done === 0}>
             전부 다시
@@ -1192,7 +1246,7 @@ export function StepVisuals({
           onCancel={() => setRedoAsk(false)}
           onConfirm={() => {
             setRedoAsk(false);
-            void generate(true);
+            void generate({ redo: true });
           }}
         />
       )}
@@ -1236,10 +1290,35 @@ export function StepVisuals({
             })}
           </div>
 
+          {/*
+            비싼 단계라 고른 것만 다시 만들 수 있어야 한다. 95장 만들다 세 장이
+            어긋났을 때 92장을 같이 버리게 하면 안 된다.
+          */}
+          <div className="row" style={{ marginBottom: 10 }}>
+            <button className="sm" onClick={toggleShown} disabled={shown.length === 0}>
+              {shown.length > 0 && shown.every((sc) => picked.has(sc.id))
+                ? "보이는 것 선택 해제"
+                : `보이는 ${shown.length}개 전체 선택`}
+            </button>
+            {picked.size > 0 && (
+              <button className="sm" onClick={() => setPicked(new Set())}>
+                선택 비우기 ({picked.size})
+              </button>
+            )}
+          </div>
+
           {shown.map((scene) => (
-            <SceneCard
-              key={scene.id} scene={scene} project={project} setProject={setProject} showImage
-            />
+            <div key={scene.id} className="pickable">
+              <label className="pick">
+                <input
+                  type="checkbox"
+                  checked={picked.has(scene.id)}
+                  onChange={() => toggle(scene.id)}
+                />
+                <span>씬 {scene.index + 1}</span>
+              </label>
+              <SceneCard scene={scene} project={project} setProject={setProject} showImage />
+            </div>
           ))}
         </div>
       )}
