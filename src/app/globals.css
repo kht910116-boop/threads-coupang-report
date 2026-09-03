@@ -345,8 +345,13 @@ nav.rail .link.done { background: color-mix(in srgb, var(--ok) 45%, var(--border
   border-right: 2px solid var(--accent); white-space: pre-wrap;
 }
 .gutter .note { padding: 14px 0 14px 16px; }
-.gutter .note strong { display: block; font-size: 12.5px; margin-bottom: 4px; }
+.gutter .note strong { display: block; font-size: 12.5px; margin-bottom: 6px; }
 .gutter .note span { display: block; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+/*
+ * 위 span 규칙이 뱃지의 inline-block을 덮어써서 전폭으로 늘어난다 — 테두리가 있으니
+ * 입력칸처럼 보인다. 실제로 그렇게 나와서 되돌린다.
+ */
+.gutter .note .badge { display: inline-block; width: auto; }
 .gutter .note .len { margin-top: 6px; font-variant-numeric: tabular-nums; }
 @media (max-width: 720px) {
   .gutter { grid-template-columns: 1fr; }
