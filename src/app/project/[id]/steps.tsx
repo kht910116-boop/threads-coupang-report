@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, assetUrl } from "@/lib/api-client";
+import { makeLineDuration, measuredCharsPerSec } from "@/lib/pipeline/grouping";
 import {
   EFFECT_LABEL,
   MAX_REFERENCES,
   SCENE_EFFECTS,
   SECTION_LABEL,
-  estimateDurationSec,
   type Project,
   type Scene,
   type ScriptSection,
@@ -504,11 +504,12 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
     });
 
   const totalChars = project.lines.reduce((sum, l) => sum + [...l.text].length, 0);
-  // 음성이 아직 없어도 글자수로 어림한다. 대본이 목표 길이에 맞는지는 지금 알아야 한다.
-  const estimatedSec = project.lines.reduce(
-    (sum, l) => sum + (l.audio?.durationSec ?? estimateDurationSec(l.text)),
-    0,
-  );
+  // 음성이 아직 없어도 어림한다. 대본이 목표 길이에 맞는지는 지금 알아야 한다.
+  // 음성이 몇 줄이라도 있으면 거기서 배운 속도로 재므로, 목소리를 바꾸면 값도 따라온다.
+  const durationOfLine = makeLineDuration(project.lines);
+  const estimatedSec = project.lines.reduce((sum, l) => sum + durationOfLine(l), 0);
+  const measured = measuredCharsPerSec(project.lines);
+  const withAudioCount = project.lines.filter((l) => l.audio).length;
   // 1.4배 이상 어긋나면 알린다. 그보다 작은 차이는 다듬으면 되는 범위다.
   const ratio = project.preset.targetDurationSec > 0
     ? estimatedSec / project.preset.targetDurationSec
@@ -520,8 +521,18 @@ export function StepStructure({ project, setProject, run, busy }: PanelProps) {
       <div className="card spread">
         <div>
           <strong>
-            {project.lines.length}줄 / {totalChars.toLocaleString()}자 · 예상 {fmt(estimatedSec)}
+            {project.lines.length}줄 / {totalChars.toLocaleString()}자 ·{" "}
+            {withAudioCount === project.lines.length ? "길이" : "예상"} {fmt(estimatedSec)}
           </strong>
+          {measured !== null && withAudioCount < project.lines.length && (
+            <>
+              <br />
+              <small>
+                음성 {withAudioCount}줄에서 잰 속도({measured.toFixed(1)}자/초)로 나머지를
+                어림했습니다.
+              </small>
+            </>
+          )}
           <br />
           <small>
             한 줄이 자막 한 줄이자 음성 한 덩어리입니다. 고치면 그 줄의 음성은 지워집니다.

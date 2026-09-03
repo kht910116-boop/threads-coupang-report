@@ -1,5 +1,5 @@
 import type { Project, Scene, ScriptLine } from "@/lib/types";
-import { lineDuration } from "./grouping";
+import { makeLineDuration } from "./grouping";
 
 /**
  * 타임라인 계산 — 무음까지 포함한 실제 시각을 낸다.
@@ -41,6 +41,10 @@ export function buildTimeline(project: Project): Timeline {
   const tail = tts.tailSilenceMs / 1000;
 
   const ordered = [...project.lines].sort((a, b) => a.index - b.index);
+
+  // 장면 묶기와 같은 기준으로 재야 자막과 영상 시각이 어긋나지 않는다.
+
+  const lineDuration = makeLineDuration(project.lines);
   const lineById = new Map<string, ScriptLine>(ordered.map((l) => [l.id, l]));
 
   const lines: LineTiming[] = [];

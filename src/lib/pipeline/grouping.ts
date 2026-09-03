@@ -34,6 +34,51 @@ export const lineDuration = (line: ScriptLine): number =>
   line.audio?.durationSec ?? estimateDurationSec(line.text);
 
 /**
+ * 몇 줄은 있어야 평균이 의미가 있다. 한두 줄로 재면 짧은 감탄사 하나에 휘둘린다.
+ */
+const MIN_SAMPLE = 5;
+
+/**
+ * **이 프로젝트에서 실제로 잰 자/초.** 음성이 붙은 줄이 모자라면 null.
+ *
+ * 코드에 박힌 5.8자/초는 목소리마다 틀린다. 실제로 재보니 Chirp3-HD 목소리는
+ * 6.91자/초였고, 그 차이가 455줄에서 4분 22초(19%)로 벌어졌다. 장면 개수는
+ * 104개와 83개로 갈렸다.
+ *
+ * 그렇다고 상수를 6.9로 바꾸면 다른 목소리에서 또 틀린다. 목소리와 속도를 바꿀
+ * 때마다 상수를 다시 재는 것은 사용자가 할 일이 아니다. 그래서 **이미 만들어진
+ * 음성에서 배운다.** 몇 줄만 만들어 봐도 나머지 추정이 그 목소리에 맞춰진다.
+ */
+export function measuredCharsPerSec(lines: ScriptLine[]): number | null {
+  let chars = 0;
+  let seconds = 0;
+  let n = 0;
+  for (const line of lines) {
+    const duration = line.audio?.durationSec;
+    if (!duration || duration <= 0) continue;
+    const count = [...line.text.trim()].length;
+    if (count === 0) continue;
+    chars += count;
+    seconds += duration;
+    n += 1;
+  }
+  return n >= MIN_SAMPLE && seconds > 0 ? chars / seconds : null;
+}
+
+/**
+ * 이 프로젝트에 맞는 길이 계산기를 만든다.
+ *
+ * 음성이 있는 줄은 그 길이를 그대로 쓰고, 없는 줄은 **같은 프로젝트에서 배운
+ * 속도**로 추정한다. 아무것도 없으면 기본 상수로 물러선다.
+ */
+export function makeLineDuration(lines: ScriptLine[]): (line: ScriptLine) => number {
+  const rate = measuredCharsPerSec(lines);
+  if (rate === null) return lineDuration;
+  return (line) =>
+    line.audio?.durationSec ?? Math.max(0.6, [...line.text.trim()].length / rate);
+}
+
+/**
  * 파트 마지막 씬이 기준보다 짧을 때 앞 씬에서 라인을 한 줄씩 넘겨받는다.
  *
  * 앞 씬이 최소 기준 아래로 내려가면 멈춘다. 그래도 짧으면, 둘을 합쳐도
@@ -43,13 +88,14 @@ function balanceTail(
   groups: SceneGroup[],
   sectionLines: ScriptLine[],
   range: { min: number; max: number },
+  durationOfLine: (line: ScriptLine) => number,
 ): void {
   const tail = groups[groups.length - 1];
   const previous = groups[groups.length - 2];
   if (!tail || !previous || previous.sectionId !== tail.sectionId) return;
   if (tail.durationSec >= range.min) return;
 
-  const durationOf = new Map(sectionLines.map((l) => [l.id, lineDuration(l)]));
+  const durationOf = new Map(sectionLines.map((l) => [l.id, durationOfLine(l)]));
 
   while (tail.durationSec < range.min && previous.lineIds.length > 1) {
     const movedId = previous.lineIds[previous.lineIds.length - 1];
@@ -126,6 +172,8 @@ export function groupLinesIntoScenes(args: {
 
   const byOrder = [...sections].sort((a, b) => a.order - b.order);
   const parts = partOrderMap(sections);
+  // 이 프로젝트에서 배운 속도로 잰다. 음성이 없는 줄만 추정에 걸린다.
+  const durationOfLine = makeLineDuration(lines);
 
   for (const section of byOrder) {
     const range = tensionRange(
@@ -142,7 +190,7 @@ export function groupLinesIntoScenes(args: {
     let current: SceneGroup | null = null;
 
     for (const line of sectionLines) {
-      const duration = lineDuration(line);
+      const duration = durationOfLine(line);
 
       if (current === null) {
         current = {
@@ -189,7 +237,7 @@ export function groupLinesIntoScenes(args: {
       groups.push(current);
       // 파트의 마지막 씬이 기준보다 짧으면 앞 씬에서 라인을 넘겨받아 채운다.
       // 그냥 앞 씬에 합쳐버리면 앞 씬이 상한을 넘겨버린다.
-      balanceTail(groups, sectionLines, range);
+      balanceTail(groups, sectionLines, range, durationOfLine);
     }
   }
 

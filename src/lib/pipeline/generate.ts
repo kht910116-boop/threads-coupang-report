@@ -20,7 +20,7 @@ import {
   type ScriptLine,
   type ScriptSection,
 } from "@/lib/types";
-import { groupLinesIntoScenes, lineDuration } from "./grouping";
+import { groupLinesIntoScenes, makeLineDuration } from "./grouping";
 
 /** zod 스키마를 엔진에 넘길 수 있는 JSON Schema로 바꾼다 ($schema 키는 뺀다). */
 function toSchema(schema: z.ZodType): Record<string, unknown> {
@@ -326,12 +326,14 @@ export async function generateStoryboard(
 
 /** 음성이 붙은 뒤 씬 길이를 실제 값으로 다시 맞춘다. */
 export function refreshSceneDurations(project: Project): Scene[] {
+  // 장면 묶기·타임라인과 같은 기준으로 잰다.
+  const durationOfLine = makeLineDuration(project.lines);
   const byIndex = new Map(project.lines.map((l) => [l.index, l]));
   return project.scenes.map((scene) => {
     let total = 0;
     for (let i = scene.lineFrom; i <= scene.lineTo; i += 1) {
       const line = byIndex.get(i);
-      if (line) total += lineDuration(line);
+      if (line) total += durationOfLine(line);
     }
     return { ...scene, durationSec: total };
   });
