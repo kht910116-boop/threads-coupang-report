@@ -48,9 +48,17 @@ export type AgentConfig = z.infer<typeof agentSchema>;
 /**
  * 기본 레지스트리.
  *
- * claude만 이 저장소에서 실제로 돌려 확인했다. 나머지는 **형태만 잡아둔 초안**이고,
- * 각 CLI의 실제 플래그에 맞게 고쳐야 한다. 설정 화면이나 data/agents.json에서
- * 바로 고칠 수 있고, 고치고 나면 verified를 true로 바꿔두면 된다.
+ * 네 항목 모두 이 PC에서 실제로 돌려 확인했다 — 헤드리스로 한 번씩 물어보고,
+ * 답이 stdout 어디로 나오는지까지 봤다. 잡음이 stderr로 가는지 stdout에 섞이는지는
+ * 도움말만 봐서는 알 수 없어서 직접 갈라 봐야 했다.
+ *
+ * antigravity는 뺐다. 이 PC에 설치돼 있지 않아 확인할 방법이 없었고, 확인 못 한
+ * 초안을 목록에 두면 사용자가 골랐다가 실패한다. 쓰는 사람이 있으면 화면에서
+ * 추가하면 된다.
+ *
+ * 새 CLI를 붙일 때 확인할 것은 셋이다 — 프롬프트를 stdin으로 받는지(긴 대본이
+ * 인자 길이 제한에 걸린다), 스키마 플래그가 인라인 문자열인지 파일인지,
+ * 답이 stdout에 단독으로 나오는지.
  */
 export const DEFAULT_AGENTS: AgentConfig[] = [
   {
@@ -78,42 +86,63 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     id: "codex",
     label: "OpenAI Codex CLI (구독)",
     command: "codex",
-    args: ["exec", "--skip-git-repo-check", "{{user}}"],
-    promptVia: "arg",
+    args: [
+      "exec",
+      "--skip-git-repo-check",
+      // 세션 파일을 남기지 않는다. 이 앱은 매번 새 요청이라 이어갈 대화가 없다.
+      "--ephemeral",
+      // 대본을 쓰는 데 파일을 고칠 이유가 없다.
+      "-s", "read-only",
+      "--color", "never",
+    ],
+    // 프롬프트를 인자로 넘기면 긴 대본에서 명령줄 길이 제한에 걸린다. stdin으로 넣는다.
+    promptVia: "stdin",
+    // --output-schema는 있지만 **파일 경로**를 받는다. 우리 러너는 스키마를 문자열로
+    // 치환하므로 그대로는 못 쓴다. 스키마는 시스템 프롬프트에 글로 넣는다.
     supportsSchema: false,
+    // 답만 stdout으로 나온다. 실행 정보·훅·토큰 수는 전부 stderr다. 확인함.
     resultPath: "",
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
-    verified: false,
+    verified: true,
     notes:
-      "미검증 초안. 실제 플래그를 확인해 args를 고칠 것. 시스템 프롬프트를 따로 받는 플래그가 있으면 {{system}}을 넣고, 없으면 지금처럼 사용자 프롬프트 앞에 합쳐진다.",
+      "codex-cli 0.152.1에서 확인. `codex` 실행 후 ChatGPT 계정으로 로그인 한 번이면 된다.",
   },
   {
     id: "grok",
     label: "Grok CLI (구독)",
     command: "grok",
-    args: ["-p", "{{user}}"],
+    args: [
+      "-p", "{{user}}",
+      // claude와 같은 방식으로 인라인 JSON Schema를 받는다.
+      "--json-schema", "{{schema}}",
+      "--output-format", "json",
+    ],
+    // -p가 프롬프트를 인자로만 받는다. stdin 경로가 문서에 없다.
     promptVia: "arg",
-    supportsSchema: false,
-    resultPath: "",
+    supportsSchema: true,
+    // 응답 봉투의 답 필드. thought·usage·cost가 같이 온다.
+    resultPath: "text",
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
-    verified: false,
-    notes: "미검증 초안. 실제 플래그를 확인해 args를 고칠 것.",
+    verified: true,
+    notes:
+      "grok 1.0.13에서 확인. 프롬프트가 인자로 들어가므로 아주 긴 대본에서는 명령줄 " +
+      "길이 제한에 걸릴 수 있다. 그럴 때는 codex나 claude를 쓸 것.",
   },
   {
-    id: "antigravity",
-    label: "Antigravity (구독)",
-    command: "antigravity",
-    args: ["{{user}}"],
-    promptVia: "arg",
+    id: "opencode",
+    label: "OpenCode (구독)",
+    command: "opencode",
+    args: ["run"],
+    promptVia: "stdin",
     supportsSchema: false,
+    // 답만 stdout으로 나온다. 모델 정보는 stderr다. 확인함.
     resultPath: "",
     versionArgs: ["--version"],
     timeoutMs: 15 * 60 * 1000,
-    verified: false,
-    notes:
-      "미검증 초안. 헤드리스 실행을 지원하는지부터 확인이 필요하다. 안 되면 이 항목은 지워도 된다.",
+    verified: true,
+    notes: "opencode 1.18.25에서 확인. `opencode providers`로 쓸 모델을 붙여둬야 한다.",
   },
 ];
 
