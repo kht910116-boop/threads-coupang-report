@@ -60,7 +60,9 @@ export const DEFAULT_MEDIA_RECIPES: MediaRecipe[] = [
     label: "Gemini 이미지 (구독)",
     kind: "image",
     url: "https://gemini.google.com/app",
-    promptSelector: "rich-textarea div[contenteditable='true']",
+    // 챗 레시피와 같은 함정 — rich-textarea 안 contenteditable이 둘이고 두 번째는
+    // Quill의 숨은 클립보드다. 에디터를 직접 가리킨다.
+    promptSelector: "rich-textarea .ql-editor[contenteditable='true']",
     submit: "enter",
     extract: "element",
     resultSelector: "generated-image img, img[alt*='생성']",
@@ -110,6 +112,8 @@ export const DEFAULT_MEDIA_RECIPES: MediaRecipe[] = [
     id: "typecast-web",
     label: "타입캐스트 음성 (구독)",
     kind: "audio",
+    // 이 주소는 마케팅 페이지다(열면 typecast.ai/kr/로 넘어간다). 실제 편집기 주소로
+    // 바꿔야 하는데, 로그인해야 보이므로 아직 확인하지 못했다.
     url: "https://typecast.ai/",
     promptSelector: "textarea, div[contenteditable='true']",
     submit: "enter",

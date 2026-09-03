@@ -40,6 +40,17 @@ export type WebRecipe = z.infer<typeof webRecipeSchema>;
 const UNVERIFIED =
   "미검증 초안. 해당 사이트를 열어 개발자도구로 실제 선택자를 확인하고 고칠 것.";
 
+/**
+ * 입력창만 확인된 상태.
+ *
+ * 로그인된 브라우저에서 DOM을 직접 조회해 promptSelector와 loggedInSelector가
+ * 맞는 것을 봤다. 다만 responseSelector는 **실제 대화가 오간 화면에서만** 존재하므로
+ * 새 대화 화면에서는 확인할 수 없다. 그래서 verified는 아직 false다.
+ */
+const INPUT_VERIFIED =
+  "입력창과 로그인 판정은 실제 페이지에서 확인함. 답변 요소(responseSelector)는 " +
+  "대화가 오간 뒤에만 나타나므로 아직 미검증 — 연결 상태 화면의 '시험'으로 확인할 것.";
+
 export const DEFAULT_WEB_RECIPES: WebRecipe[] = [
   {
     id: "chatgpt",
@@ -52,46 +63,53 @@ export const DEFAULT_WEB_RECIPES: WebRecipe[] = [
     timeoutMs: 300000,
     loggedInSelector: "#prompt-textarea",
     verified: false,
-    notes: UNVERIFIED,
+    notes: INPUT_VERIFIED,
   },
   {
     id: "claude-web",
     label: "Claude 웹 (구독)",
     url: "https://claude.ai/new",
-    promptSelector: "div[contenteditable='true']",
+    // 그냥 contenteditable로 잡아도 지금은 하나뿐이지만, 툴바나 제목 편집기가
+    // 생기면 바로 흔들린다. 에디터 클래스로 못 박는다.
+    promptSelector: "div.tiptap[contenteditable='true']",
     submit: "enter",
     responseSelector: "[data-testid='assistant-message'], .font-claude-response",
     stableMs: 2500,
     timeoutMs: 300000,
-    loggedInSelector: "div[contenteditable='true']",
+    loggedInSelector: "div.tiptap[contenteditable='true']",
     verified: false,
-    notes: UNVERIFIED,
+    notes: INPUT_VERIFIED,
   },
   {
     id: "gemini",
     label: "Gemini (구독)",
     url: "https://gemini.google.com/app",
-    promptSelector: "rich-textarea div[contenteditable='true']",
+    // rich-textarea 안에 contenteditable이 **둘** 있다. 두 번째는 Quill의 숨은
+    // 클립보드(.ql-clipboard)라 거기 입력하면 아무 일도 안 일어난다. 지금은 진짜
+    // 입력창이 첫 번째라 우연히 동작하지만, 순서가 바뀌면 조용히 깨진다.
+    promptSelector: "rich-textarea .ql-editor[contenteditable='true']",
     submit: "enter",
     responseSelector: "model-response",
     stableMs: 2500,
     timeoutMs: 300000,
     loggedInSelector: "rich-textarea",
     verified: false,
-    notes: UNVERIFIED,
+    notes: INPUT_VERIFIED,
   },
   {
     id: "grok",
     label: "Grok (구독)",
     url: "https://grok.com/",
-    promptSelector: "textarea",
+    // 초안은 "textarea"였는데 그건 숨은 그림자 요소다. 진짜 입력창은 tiptap
+    // 에디터라, 예전 값으로는 입력이 그냥 사라졌다.
+    promptSelector: "div.tiptap[contenteditable='true']",
     submit: "enter",
     responseSelector: "[class*='message-bubble']",
     stableMs: 2500,
     timeoutMs: 300000,
-    loggedInSelector: "textarea",
+    loggedInSelector: "div.tiptap[contenteditable='true']",
     verified: false,
-    notes: UNVERIFIED,
+    notes: INPUT_VERIFIED,
   },
   {
     id: "perplexity",
@@ -104,7 +122,7 @@ export const DEFAULT_WEB_RECIPES: WebRecipe[] = [
     timeoutMs: 300000,
     loggedInSelector: "",
     verified: false,
-    notes: UNVERIFIED,
+    notes: INPUT_VERIFIED,
   },
 ];
 
