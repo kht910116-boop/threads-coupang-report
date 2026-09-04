@@ -71,6 +71,14 @@ export const agentSchema = z.object({
    * 빠져야 하기 때문이다. args에 섞어두면 `--model` 만 덩그러니 남는다.
    */
   modelArgs: z.array(z.string()).default([]),
+  /**
+   * 코드를 고치라고 시킬 때 쓰는 인자. {{user}} 자리에 요청이 들어간다.
+   *
+   * 대화용 args와 다른 이유는, 대화에서는 도구를 끄고(`--tools ""`) 임시 폴더에서
+   * 돌리기 때문이다. 코드를 고치려면 파일을 읽고 쓸 수 있어야 하고 저장소 안에서
+   * 돌아야 한다. 비우면 그 CLI는 대화만 하고 코드는 못 고친다.
+   */
+  patchArgs: z.array(z.string()).default([]),
   /** 설치 여부 확인용 인자 */
   versionArgs: z.array(z.string()).default(["--version"]),
   timeoutMs: z.number().int().positive().default(15 * 60 * 1000),
@@ -124,6 +132,9 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
       { id: "fable", label: "Fable", note: "글맛을 살리는 모델" },
     ],
     modelArgs: ["--model", "{{model}}"],
+    // acceptEdits는 파일 수정만 허용한다. bypassPermissions가 아니다 —
+    // 돌고 있는 프로그램의 소스라서 위험한 것은 계속 막혀 있어야 한다.
+    patchArgs: ["-p", "{{user}}", "--permission-mode", "acceptEdits"],
     notes: "`claude` 실행 후 /login 으로 구독 계정 로그인 한 번이면 된다.",
   },
   {
@@ -153,6 +164,8 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     verified: true,
     models: [],
     modelArgs: ["--model", "{{model}}"],
+    // workspace-write는 이 폴더 안에서만 쓰게 한다. 밖은 못 건드린다.
+    patchArgs: ["exec", "-s", "workspace-write", "{{user}}"],
     notes:
       "codex-cli 0.152.1에서 확인. `codex` 실행 후 ChatGPT 계정으로 로그인 한 번이면 된다.",
   },
@@ -177,6 +190,9 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     verified: true,
     models: [],
     modelArgs: ["--model", "{{model}}"],
+    // 코드를 고치는 플래그를 이 PC에서 확인하지 못했다. 확인 못 한 설정을
+    // 넣어두면 사용자가 골랐다가 실패한다. 쓰는 사람이 화면에서 넣으면 된다.
+    patchArgs: [],
     notes:
       "grok 1.0.13에서 확인. 프롬프트가 인자로 들어가므로 아주 긴 대본에서는 명령줄 " +
       "길이 제한에 걸릴 수 있다. 그럴 때는 codex나 claude를 쓸 것.",
@@ -196,6 +212,9 @@ export const DEFAULT_AGENTS: AgentConfig[] = [
     verified: true,
     models: [],
     modelArgs: ["--model", "{{model}}"],
+    // 코드를 고치는 플래그를 이 PC에서 확인하지 못했다. 확인 못 한 설정을
+    // 넣어두면 사용자가 골랐다가 실패한다. 쓰는 사람이 화면에서 넣으면 된다.
+    patchArgs: [],
     notes: "opencode 1.18.25에서 확인. `opencode providers`로 쓸 모델을 붙여둬야 한다.",
   },
 ];
@@ -242,8 +261,18 @@ export async function listAgents(): Promise<AgentConfig[]> {
   const filled = stored.map((agent) => {
     const base = DEFAULT_AGENTS.find((d) => d.id === agent.id);
     if (!base) return agent;
-    if (agent.models.length > 0 || agent.modelArgs.length > 0) return agent;
-    return { ...agent, models: base.models, modelArgs: base.modelArgs };
+    const next = { ...agent };
+    let touched = false;
+    if (next.models.length === 0 && next.modelArgs.length === 0 && base.models.length > 0) {
+      next.models = base.models;
+      next.modelArgs = base.modelArgs;
+      touched = true;
+    }
+    if (next.patchArgs.length === 0 && base.patchArgs.length > 0) {
+      next.patchArgs = base.patchArgs;
+      touched = true;
+    }
+    return touched ? next : agent;
   });
 
   const changed =
