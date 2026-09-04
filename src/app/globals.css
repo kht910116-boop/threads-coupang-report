@@ -38,10 +38,15 @@ body {
   color: var(--text);
   font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo",
     "Segoe UI", "Malgun Gothic", sans-serif;
+  /* 비서 판이 오른쪽을 차지한다. 가운데 정렬은 남은 폭 안에서 이뤄진다. */
+  padding-right: var(--assistant-w);
 }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* 비서 판의 폭. 본문이 비켜줄 값과 한 곳에서 관리한다. */
+:root { --assistant-w: 380px; }
 
 .shell { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
 
@@ -435,13 +440,21 @@ nav.rail .link.done { background: color-mix(in srgb, var(--ok) 45%, var(--border
   border-radius: 999px; padding: 10px 18px; font-weight: 600;
   box-shadow: 0 4px 14px rgba(0,0,0,0.25);
 }
+/*
+  옆에 늘 붙어 있는 판.
+
+  예전에는 오른쪽 아래에 떠 있는 작은 상자였다. 화면을 덮어서 접어두게 되고,
+  접어두면 있는 줄도 모른다. 실제로 "비서봇이 안 보인다"는 말을 들었다.
+
+  그래서 화면 오른쪽을 통째로 차지하는 기둥으로 바꾸고, 본문은 그만큼 비켜준다
+  (.shell의 padding-right). 덮지 않으니 열어둔 채로 일할 수 있다.
+*/
 .assistant {
-  position: fixed; right: 20px; bottom: 20px; z-index: 20;
-  width: min(400px, calc(100vw - 40px));
-  max-height: min(560px, calc(100vh - 40px));
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
+  width: var(--assistant-w);
   display: flex; flex-direction: column;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0,0,0,0.3);
+  background: var(--surface); border-left: 1px solid var(--border);
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.22);
 }
 .assistant-log {
   flex: 1; overflow-y: auto; padding: 12px;
@@ -792,3 +805,20 @@ button.ghost:hover { border-color: var(--border); color: var(--text); }
   white-space: pre;
 }
 .patch .diff { max-height: 320px; overflow-y: auto; }
+
+/*
+  좁은 화면.
+
+  1100px 밑에서는 기둥까지 두면 본문이 못 쓸 만큼 좁아진다. 비서를 덮는 상자로
+  되돌리고 본문은 폭을 되찾는다.
+*/
+@media (max-width: 1100px) {
+  body { padding-right: 0; }
+  .assistant {
+    top: auto; bottom: 16px; right: 16px;
+    width: min(380px, calc(100vw - 32px));
+    max-height: min(70vh, 560px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+}

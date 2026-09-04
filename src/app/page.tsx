@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api-client";
+import { Assistant } from "@/app/assistant";
 import type { Preset } from "@/lib/types";
 
 interface ProjectRow {
@@ -158,6 +159,15 @@ export default function Home() {
           </table>
         </div>
       )}
+
+      {/*
+        첫 화면에도 비서를 둔다.
+
+        앱을 고치는 일은 어느 프로젝트에 있든 상관이 없는데, 프로젝트 안에만 두면
+        앱을 고치려고 아무 프로젝트나 열어야 한다. 실제로 앱을 켠 사용자가
+        "비서봇이 안 보인다"고 했다 — 첫 화면에 없었기 때문이다.
+      */}
+      <Assistant />
     </>
   );
 }
