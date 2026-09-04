@@ -12,8 +12,10 @@
     "typecheck": "tsc --noEmit",
     "prepare:standalone": "node scripts/prepare-standalone.mjs",
     "app": "npm run build && npm run prepare:standalone && electron .",
-    "pack": "npm run build && npm run prepare:standalone && electron-builder --win dir",
-    "dist": "npm run build && npm run prepare:standalone && electron-builder --win nsis"
+    "pack": "npm run build && npm run prepare:standalone && electron-builder --win dir && npm run stamp:icon",
+    "dist": "npm run build && npm run prepare:standalone && electron-builder --win dir && npm run stamp:icon && electron-builder --win nsis --prepackaged dist/win-unpacked",
+    "icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-icon.ps1",
+    "stamp:icon": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stamp-icon.ps1"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

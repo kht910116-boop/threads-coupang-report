@@ -41,6 +41,26 @@ function resolveServerDir() {
  * 탐색기로 찾아가야 할 때는 '파일 → 데이터 폴더 열기' 메뉴가 열어준다.
  * 다른 곳에 두고 싶으면 AUTOTUBE_DATA_DIR로 덮어쓴다.
  */
+/**
+ * 아이콘 파일.
+ *
+ * 포장 전에는 저장소의 build/ 안에, 포장 후에는 resources/ 옆에 있다.
+ * 없으면 undefined를 돌려준다 — 아이콘이 없다고 앱이 안 뜨면 안 된다.
+ */
+function iconPath() {
+  const candidates = [
+    path.join(__dirname, "..", "build", "icon.ico"),
+    path.join(process.resourcesPath || "", "icon.ico"),
+  ];
+  return candidates.find((p) => {
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+}
+
 function resolveDataDir() {
   if (process.env.AUTOTUBE_DATA_DIR) {
     return path.resolve(process.env.AUTOTUBE_DATA_DIR);
@@ -188,6 +208,9 @@ function createWindow(origin, dataDir) {
     minWidth: 1024,
     minHeight: 700,
     title: "AutoTube Studio",
+    // 포장하면 exe에 박힌 아이콘을 쓰지만, 개발 중(electron .)에는 그게 없어서
+    // 기본 Electron 아이콘이 뜬다. 두 경우 모두 같은 그림이 보이게 직접 준다.
+    icon: iconPath(),
     backgroundColor: "#0b0b0d",
     // 창을 먼저 만들어 두되 그릴 준비가 될 때까지 감춰둔다. 흰 화면이 번쩍이지 않는다.
     show: false,
@@ -217,9 +240,27 @@ function createWindow(origin, dataDir) {
  * 같은 data 폴더를 두 프로세스가 쓰면 프로젝트 저장이 서로를 덮어쓴다. 게다가
  * 크롬은 같은 프로파일 폴더를 동시에 두 번 열지 못해 구독 웹 작업이 통째로 깨진다.
  */
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
+/**
+ * 잠금을 몇 번 다시 시도한다.
+ *
+ * 강제 종료(작업 관리자, taskkill) 직후에는 죽어가는 프로세스가 잠금을 잠깐 더
+ * 쥐고 있다. 그 사이에 다시 켜면 새 인스턴스가 잠금을 못 얻고 **조용히 꺼진다** —
+ * 사용자에게는 아이콘을 눌렀는데 아무 일도 안 일어나는 것으로 보인다. 실제로
+ * 그렇게 두 번 겪었다.
+ *
+ * 진짜로 다른 인스턴스가 살아 있으면 그쪽이 second-instance를 받아 앞으로 나오므로
+ * 여기서 기다리는 동안 사용자는 이미 자기 창을 보고 있다. 잠금이 죽은 것이었으면
+ * 그동안 풀린다.
+ */
+async function acquireLock() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (app.requestSingleInstanceLock()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+function run() {
   app.on("second-instance", () => {
     const [win] = BrowserWindow.getAllWindows();
     if (!win) return;
@@ -253,3 +294,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("before-quit", stopServer);
 }
+
+acquireLock().then((ok) => {
+  if (ok) run();
+  else app.quit();
+});
