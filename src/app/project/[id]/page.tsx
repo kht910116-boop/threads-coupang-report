@@ -123,7 +123,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
         </div>
       </div>
 
-      <Assistant projectId={project.id} step={step} />
+      <Assistant projectId={project.id} step={step} onApplied={() => void load()} />
     </>
   );
 }
@@ -177,6 +177,33 @@ interface Message {
  * 지금 어느 단계에 있는지와 프로젝트 상태가 매번 서버로 같이 넘어가서,
  * "3번째 줄이 너무 길다" 같은 구체적인 말을 할 수 있다.
  */
+interface ProposedEdit {
+  target: "line" | "scene" | "setting";
+  number?: number;
+  id?: string;
+  field: string;
+  value: string;
+  before: string;
+  why: string;
+}
+
+/** 무엇을 고치는 것인지 사람 말로. field 이름을 그대로 보여주면 안 읽힌다. */
+const EDIT_LABEL: Record<string, string> = {
+  text: "자막 글자",
+  spokenText: "읽는 글자",
+  summaryKo: "한글요약",
+  prompt: "이미지 프롬프트",
+  motionPrompt: "모션 프롬프트",
+  effect: "효과",
+  mode: "모드",
+};
+
+function editTitle(edit: ProposedEdit): string {
+  if (edit.target === "line") return `${edit.number}번 줄 · ${EDIT_LABEL[edit.field] ?? edit.field}`;
+  if (edit.target === "scene") return `${edit.number}번 장면 · ${EDIT_LABEL[edit.field] ?? edit.field}`;
+  return `설정 · ${edit.field}`;
+}
+
 interface EngineRow {
   id: string;
   label: string;
@@ -185,7 +212,16 @@ interface EngineRow {
   models: Array<{ id: string; label: string; note: string }>;
 }
 
-function Assistant({ projectId, step }: { projectId: string; step: Step }) {
+function Assistant({
+  projectId,
+  step,
+  onApplied,
+}: {
+  projectId: string;
+  step: Step;
+  /** 비서가 프로젝트를 고친 뒤. 화면이 옛 값을 들고 있으면 안 된다. */
+  onApplied: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -193,6 +229,9 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
   const [engines, setEngines] = useState<EngineRow[]>([]);
   const [engineId, setEngineId] = useState("");
   const [model, setModel] = useState("");
+  const [edits, setEdits] = useState<ProposedEdit[]>([]);
+  // 기본은 전부 켬. 비서가 시킨 것만 담게 되어 있으니 대개 그대로 받는다.
+  const [chosen, setChosen] = useState<Set<number>>(new Set());
 
   /*
     엔진 목록은 비서를 열 때 한 번만 가져온다. 목록을 뽑으려면 CLI마다 --version을
@@ -205,7 +244,40 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
       .catch(() => setEngines([]));
   }, [open, engines.length]);
 
-  const chosen = engines.find((e) => e.id === engineId);
+  const chosenEngine = engines.find((e) => e.id === engineId);
+
+  async function applyEdits() {
+    const picked = edits.filter((_, i) => chosen.has(i));
+    if (picked.length === 0) return;
+    setBusy(true);
+    try {
+      await api(`/api/projects/${projectId}/assistant`, {
+        method: "PUT",
+        json: {
+          edits: picked.map((e) => ({
+            target: e.target,
+            id: e.id,
+            field: e.field,
+            value: e.value,
+          })),
+        },
+      });
+      setEdits([]);
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: `${picked.length}군데 고쳤습니다.` },
+      ]);
+      // 프로젝트가 바뀌었으니 화면을 다시 읽는다. 비서 창은 열어둔다.
+      onApplied();
+    } catch (err) {
+      setMessages((current) => [
+        ...current,
+        { role: "assistant", content: err instanceof Error ? err.message : String(err) },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
   // 엔진을 바꾸면 모델은 초기화한다. 클로드의 'opus'를 그록에 넘기면 실패한다.
   const pickEngine = (id: string) => {
     setEngineId(id);
@@ -220,10 +292,23 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
     setMessages((current) => [...current, { role: "user", content: message }]);
     setBusy(true);
     try {
-      const result = await api<{ answer: string }>(`/api/projects/${projectId}/assistant`, {
+      const result = await api<{
+        answer: string;
+        edits: ProposedEdit[];
+        rejected: string[];
+      }>(`/api/projects/${projectId}/assistant`, {
         json: { message, step, history: messages.slice(-10), engineId, model },
       });
       setMessages((current) => [...current, { role: "assistant", content: result.answer }]);
+      setEdits(result.edits);
+      setChosen(new Set(result.edits.map((_, i) => i)));
+      if (result.rejected.length > 0) {
+        // 걸러낸 제안도 말해준다. 조용히 빼면 비서가 대답만 하고 안 고친 것처럼 보인다.
+        setMessages((current) => [
+          ...current,
+          { role: "assistant", content: `못 적용한 것: ${result.rejected.join(" / ")}` },
+        ]);
+      }
     } catch (err) {
       setMessages((current) => [
         ...current,
@@ -266,10 +351,10 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
             </option>
           ))}
         </select>
-        {chosen && chosen.models.length > 0 && (
+        {chosenEngine && chosenEngine.models.length > 0 && (
           <select value={model} onChange={(e) => setModel(e.target.value)}>
             <option value="">기본 모델</option>
-            {chosen.models.map((m) => (
+            {chosenEngine.models.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label}
               </option>
@@ -277,9 +362,9 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
           </select>
         )}
       </div>
-      {chosen?.models.find((m) => m.id === model) && (
+      {chosenEngine?.models.find((m) => m.id === model) && (
         <p className="assistant-note">
-          {chosen.models.find((m) => m.id === model)?.note}
+          {chosenEngine.models.find((m) => m.id === model)?.note}
         </p>
       )}
 
@@ -299,6 +384,49 @@ function Assistant({ projectId, step }: { projectId: string; step: Step }) {
           </div>
         ))}
         {busy && <div className="bubble assistant"><span className="spinner" />생각 중…</div>}
+
+        {/*
+          비서가 바꾸겠다는 것들. 여기서 누르기 전까지 아무것도 안 바뀐다.
+          되돌리기가 없으므로 전과 후를 나란히 보여주는 것이 이 기능의 절반이다.
+        */}
+        {edits.length > 0 && (
+          <div className="edits">
+            <div className="spread">
+              <strong>이렇게 고칩니다</strong>
+              <button className="sm" onClick={() => setEdits([])}>버리기</button>
+            </div>
+            {edits.map((edit, i) => (
+              <label className={`edit${chosen.has(i) ? " on" : ""}`} key={i}>
+                <input
+                  type="checkbox"
+                  checked={chosen.has(i)}
+                  onChange={() =>
+                    setChosen((current) => {
+                      const next = new Set(current);
+                      if (next.has(i)) next.delete(i);
+                      else next.add(i);
+                      return next;
+                    })
+                  }
+                />
+                <div>
+                  <span className="what">{editTitle(edit)}</span>
+                  <p className="was">{edit.before || "(비어 있음)"}</p>
+                  <p className="now">{edit.value}</p>
+                  <p className="why">{edit.why}</p>
+                </div>
+              </label>
+            ))}
+            <button
+              className="primary"
+              style={{ width: "100%" }}
+              disabled={busy || chosen.size === 0}
+              onClick={() => void applyEdits()}
+            >
+              고른 {chosen.size}군데 적용
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="row" style={{ padding: 10, flexWrap: "nowrap", gap: 6 }}>

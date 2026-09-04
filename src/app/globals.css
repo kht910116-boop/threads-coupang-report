@@ -719,3 +719,38 @@ button.ghost:hover { border-color: var(--border); color: var(--text); }
   color: var(--text-dim);
   line-height: 1.5;
 }
+
+/* ── 비서가 고치겠다는 것들 ───────────────────────────────── */
+
+/*
+  전 → 후를 위아래로 쌓는다. 좌우로 놓으면 긴 문장에서 두 칸 높이가 어긋나
+  어느 것이 어느 것의 짝인지 안 보인다. 색으로 방향을 준다 — 흐린 것이 옛것.
+*/
+.edits {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+.edits > .spread { margin-bottom: 8px; }
+.edits > .primary { margin-top: 8px; }
+
+.edit {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: pointer;
+  opacity: 0.55;
+}
+.edit.on { opacity: 1; }
+.edit > input { width: auto; margin: 2px 0 0; flex: none; }
+.edit > div { flex: 1; min-width: 0; }
+.edit .what { font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.edit p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; }
+.edit .was { color: var(--text-dim); text-decoration: line-through; }
+.edit .now { color: var(--text); }
+.edit .why { color: var(--text-dim); font-size: 11.5px; font-style: italic; }
